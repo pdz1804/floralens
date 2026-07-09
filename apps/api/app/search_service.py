@@ -6,6 +6,9 @@ from __future__ import annotations
 import functools
 import io
 import logging
+import pickle
+from pathlib import Path
+from typing import Any
 
 import numpy as np
 from PIL import Image
@@ -13,19 +16,65 @@ from PIL import Image
 from apps.api.app.config import settings
 from ml.embeddings.backbone import embed_image
 from ml.embeddings.cache import load_embeddings
+from ml.eval.calibration import confidence_band
 from ml.index.vector_store import VectorStore
 
 logger = logging.getLogger(__name__)
 
 
 class SearchResultItem:
-    __slots__ = ("specimen_id", "label", "label_name", "score")
+    __slots__ = ("specimen_id", "label", "label_name", "score", "confidence", "band")
 
-    def __init__(self, specimen_id: str, label: int, label_name: str, score: float) -> None:
+    def __init__(
+        self,
+        specimen_id: str,
+        label: int,
+        label_name: str,
+        score: float,
+        confidence: float | None = None,
+        band: str | None = None,
+    ) -> None:
         self.specimen_id = specimen_id
         self.label = label
         self.label_name = label_name
         self.score = score
+        # Calibrated confidence (0..1) + high/medium/low band (PRD §14.6).
+        # Both stay None on the "baseline" model version (raw cosine, no
+        # calibrator fit yet) — additive/optional so the existing
+        # specimen_id/label/label_name/score contract is unchanged.
+        self.confidence = confidence
+        self.band = band
+
+
+@functools.lru_cache(maxsize=1)
+def _load_candidate(model_version: str) -> tuple[Any, dict, Any | None] | None:
+    """Load a promoted candidate's projection head (+ optional calibrator).
+
+    Returns None for "baseline" or if no ModelVersion artifact directory
+    exists for `model_version` (e.g. an unset/typo'd env var) — callers then
+    fall back to the frozen backbone with no projection, matching Phase 0-1
+    behavior exactly.
+    """
+    if model_version == "baseline":
+        return None
+    candidate_dir = Path(settings.models_dir) / model_version
+    if not (candidate_dir / "head.pt").exists():
+        logger.warning("MODEL_VERSION=%s has no artifact at %s; falling back to baseline", model_version, candidate_dir)
+        return None
+
+    from ml.train.model_io import load_candidate_head  # local import: keeps torch off the baseline hot path
+
+    head, metadata = load_candidate_head(candidate_dir)
+    calibrator = None
+    calibrator_path = candidate_dir / "calibrator.pkl"
+    if calibrator_path.exists():
+        calibrator = pickle.loads(calibrator_path.read_bytes())
+    return head, metadata, calibrator
+
+
+def reset_candidate_cache() -> None:
+    """Test helper: clears the cached candidate head/calibrator singleton."""
+    _load_candidate.cache_clear()
 
 
 @functools.lru_cache(maxsize=1)
@@ -34,17 +83,29 @@ def get_gallery_store() -> VectorStore:
 
     Only specimens tagged split=="gallery" are indexed, matching the PRD
     rule that production search never queries against held-out val/test
-    query partitions (§14.7).
+    query partitions (§14.7). If `settings.model_version` names a promoted
+    candidate, gallery vectors are projected through its head before
+    indexing so query-time and index-time embeddings live in the same space.
     """
     vectors, metadata = load_embeddings(settings.embeddings_cache_dir)
-    model_version = metadata.get("model_version", settings.model_version)
+    candidate = _load_candidate(settings.model_version)
+    model_version = settings.model_version if candidate else metadata.get("model_version", "baseline")
+
     store = VectorStore(model_version=model_version)
     specimens = metadata["specimens"]
-    indexed = 0
-    for specimen_id, vector in vectors.items():
+    gallery_ids = [sid for sid, meta in specimens.items() if meta["split"] == "gallery"]
+
+    if candidate:
+        head, _, _ = candidate
+        from ml.train.model_io import project_embeddings
+
+        raw = np.stack([vectors[sid] for sid in gallery_ids], axis=0)
+        projected = project_embeddings(head, raw)
+    else:
+        projected = np.stack([vectors[sid] for sid in gallery_ids], axis=0)
+
+    for specimen_id, vector in zip(gallery_ids, projected):
         meta = specimens[specimen_id]
-        if meta["split"] != "gallery":
-            continue
         store.add(
             specimen_id,
             vector,
@@ -54,8 +115,7 @@ def get_gallery_store() -> VectorStore:
                 "image_path": meta["image_path"],
             },
         )
-        indexed += 1
-    logger.info("gallery vector store ready: %d specimens (model_version=%s)", indexed, model_version)
+    logger.info("gallery vector store ready: %d specimens (model_version=%s)", len(gallery_ids), model_version)
     return store
 
 
@@ -74,18 +134,43 @@ def strip_exif_and_load(image_bytes: bytes) -> Image.Image:
 
 
 def search_image(image: Image.Image, top_k: int | None = None) -> tuple[str, list[SearchResultItem]]:
-    """Embed the query image and return (model_version, ranked results)."""
+    """Embed the query image and return (model_version, ranked results).
+
+    On "baseline" (default), behavior is unchanged from Phase 0-1: raw
+    cosine score, no confidence/band. If a promoted candidate is active
+    (settings.model_version), the query embedding is projected through its
+    head to match the gallery's space, and — if a calibrator artifact was
+    persisted for that candidate — each result also carries a calibrated
+    `confidence` (0..1) and `band` (high/medium/low), per PRD §14.6.
+    """
     top_k = top_k or settings.default_top_k
     store = get_gallery_store()
     vector: np.ndarray = embed_image(image)
+
+    candidate = _load_candidate(settings.model_version)
+    calibrator = None
+    if candidate:
+        head, _, calibrator = candidate
+        from ml.train.model_io import project_embeddings
+
+        vector = project_embeddings(head, vector.reshape(1, -1))[0]
+
     results = store.query(vector, top_k=top_k)
-    items = [
-        SearchResultItem(
-            specimen_id=r.id,
-            label=r.metadata["label"],
-            label_name=r.metadata["label_name"],
-            score=r.score,
+    items = []
+    for r in results:
+        confidence = None
+        band = None
+        if calibrator is not None:
+            confidence = float(calibrator.predict(np.array([r.score]))[0])
+            band = confidence_band(confidence)
+        items.append(
+            SearchResultItem(
+                specimen_id=r.id,
+                label=r.metadata["label"],
+                label_name=r.metadata["label_name"],
+                score=r.score,
+                confidence=confidence,
+                band=band,
+            )
         )
-        for r in results
-    ]
     return store.model_version, items

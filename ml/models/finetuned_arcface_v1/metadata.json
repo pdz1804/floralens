@@ -1,0 +1,43 @@
+{
+  "model_version": "finetuned_arcface_v1",
+  "base_model": "open_clip_vit_b32_laion2b",
+  "method": "arcface",
+  "hyperparams": {
+    "loss": "arcface",
+    "lr": 0.001,
+    "head_hidden_dim": 0,
+    "output_dim": 256,
+    "margin": 0.5,
+    "scale": 30.0,
+    "batch_size": 128,
+    "max_epochs": 40,
+    "early_stop_patience": 5,
+    "early_stop_min_delta": 0.001,
+    "seed": 42,
+    "weight_decay": 0.0001
+  },
+  "dataset_hash": "1d26d1c1634cd3890ecaa68cd2748df779e6d128",
+  "seed": 42,
+  "input_dim": 512,
+  "output_dim": 256,
+  "head_hidden_dim": 0,
+  "val_metrics": {
+    "mrr": 0.9714285714285713,
+    "recall@1": 0.9558823529411765,
+    "precision@1": 0.9558823529411765,
+    "map@1": 0.9558823529411765,
+    "recall@5": 0.9926470588235294,
+    "precision@5": 0.9205882352941183,
+    "map@5": 0.958864379084967,
+    "recall@10": 0.9950980392156863,
+    "precision@10": 0.7955882352941177,
+    "map@10": 0.9377850140827927,
+    "silhouette": 0.38848045468330383,
+    "num_queries": 408,
+    "num_gallery": 985
+  },
+  "best_epoch": 5,
+  "source_run_id": "run03_arcface_lr0.001_hd0_od256_m0.5",
+  "created_at": "2026-07-09T08:53:24Z",
+  "note": "val metrics only; test set not touched by this script (PRD 14.2 rule 3)"
+}

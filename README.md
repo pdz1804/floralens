@@ -1,24 +1,27 @@
-# FloraLens — ML Backend (Phase 0-1)
+# FloraLens — ML Backend (Phase 0-3b)
 
 Flower visual-similarity search backend. See `PRD.md` and `IMPLEMENTATION-PLAN.md`
 for the full product spec; this README covers what's built so far: **Phase 0
-(scaffold)** and **Phase 1 (dataset, splits, embeddings, retrieval eval,
-vector index, search API)**.
+(scaffold)**, **Phase 1 (dataset, splits, embeddings, retrieval eval, vector
+index, search API)**, and **Phase 3-3b (ArcFace fine-tuning, one-shot test
+eval, score calibration, promotion gate)**.
 
 ## Layout
 
 ```
 apps/api/app/        FastAPI app (health, search)
   main.py            routes
-  search_service.py  gallery vector store + query pipeline
+  search_service.py  gallery vector store + query pipeline + model-version switch
   config.py          env-driven settings
 apps/api/tests/       API tests (TestClient)
 ml/data/              dataset ingestion, split builder, leakage guard
 ml/embeddings/         frozen backbone (OpenCLIP ViT-B-32, resnet50 fallback) + cache
+ml/train/              projection head, ArcFace/triplet losses, trainer, promotion gate
 ml/index/              in-memory cosine vector store
-ml/eval/                retrieval metrics + eval harness + reports/
+ml/eval/                retrieval metrics + eval harness + calibration + reports/
+ml/models/              persisted ModelVersion artifacts (head weights + calibrator)
 ml/scripts/             CLI entry points that run the pipeline end-to-end
-tests/                 ML unit/integration tests (metrics, leakage, embeddings, smoke)
+tests/                 ML unit/integration tests (metrics, leakage, embeddings, smoke, training, calibration, gate)
 ```
 
 ## Setup
@@ -30,8 +33,9 @@ venv/Scripts/python.exe -m pip install torch==2.7.1 torchvision==0.22.1 --index-
 venv/Scripts/python.exe -m pip install open-clip-torch==2.31.0
 ```
 
-Torch is CPU-only by design: the embedding backbone is frozen (no training
-in Phase 0-1), so CPU inference is sufficient and keeps the setup simple.
+Torch is CPU-only by design: the backbone itself stays frozen even in
+Phase 3 (only the small projection head is trained), so CPU is sufficient
+throughout and keeps the setup simple.
 
 ## Data pipeline (run once, in order)
 
@@ -77,6 +81,39 @@ dataset, same content, same license.
   `ml/data/subset.py::DEFAULT_PER_CLASS_CAP` and are trivially raised for a
   full-scale run — the pipeline code itself is correct at full 8185 scale.
 
+## Phase 3-3b: fine-tuning, test eval, calibration, promotion gate
+
+```bash
+# 4. Embed a stratified, train-only-augmented subset of the train split
+#    (frozen backbone; ~1530 base images x 3 views = 4590 embeddings).
+venv/Scripts/python.exe -m ml.scripts.embed_train_subset
+
+# 5. ArcFace hyperparameter sweep (+ 1 triplet comparison run); early
+#    stopping + selection on VAL Recall@5 only. Test split is never read
+#    (enforced by ml.train.isolation_guard). Saves the winning candidate to
+#    ml/models/finetuned_arcface_v1/.
+venv/Scripts/python.exe -m ml.scripts.run_finetune_sweep
+
+# 6. ONE-SHOT held-out test evaluation of the selected candidate.
+venv/Scripts/python.exe -m ml.scripts.run_test_eval
+
+# 7. Fit the score calibrator on VAL, evaluate ECE on TEST, persist the
+#    fitted calibrator next to the head weights.
+venv/Scripts/python.exe -m ml.scripts.run_calibration
+
+# 8. Promotion gate: candidate vs baseline on held-out test.
+venv/Scripts/python.exe -m ml.scripts.run_promotion_gate
+```
+
+Outputs:
+- `ml/data/embeddings_cache/train/{embeddings.npz,metadata.json}`
+- `ml/eval/reports/experiments/run*.json` (per-run config + epoch curves + ids used)
+- `ml/eval/reports/finetune_sweep_summary.json`
+- `ml/models/finetuned_arcface_v1/{head.pt,metadata.json,calibrator.pkl}`
+- `ml/eval/reports/candidate_test_eval_report.json`
+- `ml/eval/reports/candidate_calibration_report.json`
+- `ml/eval/reports/promotion_decision.json`
+
 ## Run the API
 
 ```bash
@@ -86,7 +123,11 @@ venv/Scripts/python.exe -m uvicorn apps.api.app.main:app --reload --port 8000
 - `GET /health`, `GET /api/health` — liveness + active `model_version`.
 - `POST /api/search` — multipart `file` upload OR JSON `{"image_base64": "..."}`;
   returns top-12 gallery matches (`specimen_id`, `label_name`, cosine `score`).
-  EXIF is stripped before embedding.
+  EXIF is stripped before embedding. `MODEL_VERSION` (env, default
+  `finetuned_arcface_v1`) selects the active model; `search_service`
+  additionally computes calibrated `confidence`/`band` per result when a
+  candidate + calibrator are active (not yet surfaced through the
+  `SearchResultOut` schema in `main.py` — see Known limitations below).
 
 ## Tests
 
@@ -94,9 +135,13 @@ venv/Scripts/python.exe -m uvicorn apps.api.app.main:app --reload --port 8000
 venv/Scripts/python.exe -m pytest -v
 ```
 
-30 tests: retrieval metric fixtures, vector store ranking, embedding
+55 tests: retrieval metric fixtures, vector store ranking, embedding
 determinism/shape, leakage (synthetic + real manifest hard-assert), API
-contract/validation/search, and an end-to-end embed→index→query smoke test.
+contract/validation/search, an end-to-end embed→index→query smoke test,
+plus Phase 3-3b: ArcFace/triplet loss gradient sanity, projection-head
+shape/L2-norm, calibration monotonicity + ECE improvement, promotion-gate
+decision logic, and a test-set-isolation guard (asserts training/selection
+never reads a test-split id, including against the real sweep run logs).
 
 ## Baseline results (OpenCLIP ViT-B-32, laion2b_s34b_b79k, zero-shot)
 
@@ -109,6 +154,52 @@ From `ml/eval/reports/baseline_eval_report.json` (gallery = 985 specimens,
 | test | 0.914 | 0.978 | 0.990 | 0.869 | 0.943 |
 
 val↔test Recall@5 gap: 0.000 (well under the 5-point overfitting guard in
-PRD §5/§14.8). These are zero-shot numbers with no fine-tuning — Phase 3
-will compare a fine-tuned model against this baseline using the identical
-protocol.
+PRD §5/§14.8).
+
+## Phase 3 candidate: ArcFace projection head (val-selected)
+
+Train-only-augmented subset: 1530 base train images (15/class stratified
+cap; every class has ≥24 train images), 3 views each (original, horizontal
+flip, mild rotation — color jitter deliberately excluded since flower
+species are color-diagnostic) = 4590 embeddings. 10-run hyperparameter
+sweep (8 ArcFace lr/output-dim/margin configs + 1 ArcFace MLP-head variant
++ 1 triplet-loss comparison), early stopping on val Recall@5, selection by
+val metrics only (test never read — see `ml/eval/reports/experiments/`).
+
+Winner: `run03_arcface_lr0.001_hd0_od256_m0.5` (linear head, 512→256,
+margin 0.5) — **val** Recall@1=0.956, Recall@5=0.993, mAP@10=0.938,
+MRR=0.971 (`ml/models/finetuned_arcface_v1/metadata.json`).
+
+## Phase 3b: one-shot test result, calibration, promotion decision
+
+From `ml/eval/reports/candidate_test_eval_report.json` and
+`ml/eval/reports/promotion_decision.json` (same 985/408/408 gallery/val/test
+partitions, identical protocol to baseline):
+
+| Model | test Recall@1 | test Recall@5 | test Recall@10 | test mAP@10 | test MRR |
+|---|---|---|---|---|---|
+| baseline (zero-shot) | 0.914 | 0.978 | 0.990 | 0.869 | 0.943 |
+| **finetuned_arcface_v1** | **0.953** | **0.990** | **0.998** | **0.935** | **0.970** |
+
+val↔test Recall@5 gap: 0.0025 (well under the 0.05 overfitting guard).
+
+**Calibration** (isotonic regression, fit on val pairs, evaluated on test
+pairs — `ml/eval/reports/candidate_calibration_report.json`): ECE dropped
+from **0.499** (naive rescaled raw cosine, [-1,1]→[0,1]) to **0.0004**
+after calibration (target ≤ 0.05). Confidence bands: high ≥0.70,
+medium ≥0.40, low <0.40.
+
+**Promotion gate** (`ml/train/promotion_gate.py`, thresholds: Recall@5
+tolerance 0.02, val/test gap max 0.05, ECE max 0.05): **PROMOTE** —
+candidate test Recall@5 (0.990) beats baseline (0.978) outright, well
+within tolerance; val/test gap and ECE both pass. `finetuned_arcface_v1`
+is now the default `MODEL_VERSION` (see `.env.example`); set
+`MODEL_VERSION=baseline` to roll back.
+
+### Known limitation
+
+`search_service.search_image` computes calibrated `confidence`/`band` per
+result, but the `SearchResultOut` Pydantic schema in `apps/api/app/main.py`
+does not yet include those fields (out of this phase's file-ownership
+scope) — a small additive follow-up to `main.py` is needed to surface them
+over the API.
