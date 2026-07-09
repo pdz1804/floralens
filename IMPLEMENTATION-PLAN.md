@@ -10,16 +10,16 @@ Stack: FastAPI + PyTorch + LangGraph + mem0 (Python) / Next.js + Three.js (TS).
 
 | # | Phase | Depends on | Primary skill | Status |
 |---|---|---|---|---|
-| 0 | Foundation & scaffolding | — | Project setup | ☐ |
-| 1 | Dataset, splits & baseline retrieval | 0 | **Data hygiene + eval protocol** | ☐ |
+| 0 | Foundation & scaffolding | — | Project setup | ☑ |
+| 1 | Dataset, splits & baseline retrieval | 0 | **Data hygiene + eval protocol** | ☑ |
 | 2 | Search UI + scored results | 1 | Frontend, UX | ☐ |
-| 3 | Fine-tuning + validation (model selection) | 1 | **Training + val discipline** | ☐ |
-| 3b | Test eval, calibration & promotion gate | 3 | **Unbiased testing + calibration** | ☐ |
+| 3 | Fine-tuning + validation (model selection) | 1 | **Training + val discipline** | ☑ |
+| 3b | Test eval, calibration & promotion gate | 3 | **Unbiased testing + calibration** | ☑ |
 | 4 | 3D specimen viewer + embedding galaxy | 1,2 | Three.js | ☐ |
 | 5 | Unified Agent Core integration | 0 | Agent harness | ☐ |
 | 6 | Naturalist multi-agent assistant | 5 | LangGraph, prompts, web search | ☐ |
 | 7 | My Garden + mem0 memory | 5,6 | Memory | ☐ |
-| 8 | Testing, CI gates & ML regression | 1,3b,6 | **Test strategy (PRD §15)** | ☐ |
+| 8 | Testing, CI gates & ML regression | 1,3b,6 | **Test strategy (PRD §15)** | ◐ |
 | 9 | Auth, hardening, observability | all | Platform | ☐ |
 
 ---
