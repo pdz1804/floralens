@@ -78,7 +78,7 @@ label { display: block; font-size: 12px; color: var(--muted); margin: 12px 0 5px
 .band.low { background: rgba(201,100,66,.18); color: var(--low); }
 
 .filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
-.chip { font-size: 12px; padding: 4px 10px; border-radius: 16px; border: 1px solid var(--line); background: var(--panel-2); color: var(--muted); cursor: pointer; }
+.chip { font-size: 12px; padding: 4px 12px; border-radius: 16px; border: 1px solid var(--line); background: var(--panel-2); color: var(--muted); cursor: pointer; width: auto; margin-top: 0; font-weight: 600; }
 .chip.active { border-color: var(--accent); color: var(--accent); }
 
 .muted { color: var(--muted); }

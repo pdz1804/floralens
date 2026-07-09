@@ -12,16 +12,19 @@ export type SearchResult = {
 export type SearchResponse = { model_version: string; results: SearchResult[] };
 export type Health = { status: string; model_version: string };
 
+// Client-side upload ceiling (backend enforces its own limit too).
+export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024; // 10 MB
+
 export async function getHealth(): Promise<Health> {
   const r = await fetch("/health", { cache: "no-store" });
   if (!r.ok) throw new Error(`health ${r.status}`);
   return r.json();
 }
 
-export async function searchImage(file: Blob): Promise<SearchResponse> {
+export async function searchImage(file: Blob, signal?: AbortSignal): Promise<SearchResponse> {
   const form = new FormData();
   form.append("file", file, "query.jpg");
-  const r = await fetch("/api/search", { method: "POST", body: form });
+  const r = await fetch("/api/search", { method: "POST", body: form, signal });
   if (!r.ok) {
     let detail = `search failed (${r.status})`;
     try {

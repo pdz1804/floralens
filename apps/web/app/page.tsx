@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   bandFor,
   getHealth,
+  MAX_UPLOAD_BYTES,
   searchImage,
   type Health,
   type SearchResult,
@@ -23,32 +24,50 @@ export default function Page() {
   const [bandFilter, setBandFilter] = useState<"all" | "high" | "medium" | "low">("all");
   const [dragging, setDragging] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  // Guards against a stale search response overwriting results for a newer image.
+  const searchSeq = useRef(0);
+  const searchAbort = useRef<AbortController | null>(null);
 
   useEffect(() => {
     getHealth().then(setHealth).catch(() => setHealth(null));
+    return () => searchAbort.current?.abort();
   }, []);
 
-  const setImage = useCallback(
-    (blob: Blob) => {
-      if (blob.size === 0) return;
-      if (!blob.type.startsWith("image/")) {
-        setError("Please choose an image file (jpg, png, webp).");
-        setPhase("error");
-        return;
-      }
-      setError(null);
-      setFile(blob);
-      setPreviewUrl((old) => {
-        if (old) URL.revokeObjectURL(old);
-        return URL.createObjectURL(blob);
-      });
-      setResults([]);
-      setPhase("idle");
-    },
-    [],
-  );
+  const setImage = useCallback((blob: Blob) => {
+    if (blob.size === 0) {
+      setError("That file is empty — choose a flower photo.");
+      setPhase("error");
+      return;
+    }
+    if (!blob.type.startsWith("image/")) {
+      setError("Please choose an image file (jpg, png, webp).");
+      setPhase("error");
+      return;
+    }
+    if (blob.size > MAX_UPLOAD_BYTES) {
+      setError(`Image is too large (max ${Math.round(MAX_UPLOAD_BYTES / 1024 / 1024)} MB).`);
+      setPhase("error");
+      return;
+    }
+    // Invalidate any in-flight search so its late response is ignored.
+    searchSeq.current += 1;
+    searchAbort.current?.abort();
+    setError(null);
+    setFile(blob); // preview URL is derived from `file` in the effect below.
+    setResults([]);
+    setPhase("idle");
+  }, []);
 
-  useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl); }, [previewUrl]);
+  // Own the object-URL lifecycle in one place, keyed on the selected file.
+  useEffect(() => {
+    if (!file) {
+      setPreviewUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(file);
+    setPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
 
   function onPick(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0];
@@ -75,15 +94,21 @@ export default function Page() {
 
   async function onSearch() {
     if (!file) return;
+    const seq = ++searchSeq.current;
+    const ctrl = new AbortController();
+    searchAbort.current = ctrl;
     setPhase("searching");
     setError(null);
     setResults([]);
+    setBandFilter("all");
     try {
-      const res = await searchImage(file);
+      const res = await searchImage(file, ctrl.signal);
+      if (seq !== searchSeq.current) return; // superseded by a newer image/search
       setResults(res.results);
       setModelVersion(res.model_version);
       setPhase("done");
     } catch (e) {
+      if ((e as Error).name === "AbortError" || seq !== searchSeq.current) return;
       setError((e as Error).message);
       setPhase("error");
     }
@@ -93,6 +118,12 @@ export default function Page() {
     () => (bandFilter === "all" ? results : results.filter((r) => bandFor(r) === bandFilter)),
     [results, bandFilter],
   );
+  // Stable original rank per specimen (avoids O(n²) indexOf during render).
+  const rankOf = useMemo(() => {
+    const m = new Map<string, number>();
+    results.forEach((r, i) => m.set(r.specimen_id, i + 1));
+    return m;
+  }, [results]);
 
   return (
     <>
@@ -115,7 +146,16 @@ export default function Page() {
               <div
                 className={`dropzone ${dragging ? "drag" : ""}`}
                 data-testid="dropzone"
+                role="button"
+                tabIndex={0}
+                aria-label="Upload a flower photo"
                 onClick={() => fileRef.current?.click()}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    fileRef.current?.click();
+                  }
+                }}
                 onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
                 onDragLeave={() => setDragging(false)}
                 onDrop={onDrop}
@@ -170,14 +210,16 @@ export default function Page() {
               {results.length > 0 && (
                 <div className="filters" data-testid="filters">
                   {(["all", "high", "medium", "low"] as const).map((b) => (
-                    <span
+                    <button
+                      type="button"
                       key={b}
                       className={`chip ${bandFilter === b ? "active" : ""}`}
                       data-testid={`filter-${b}`}
+                      aria-pressed={bandFilter === b}
                       onClick={() => setBandFilter(b)}
                     >
                       {b}
-                    </span>
+                    </button>
                   ))}
                 </div>
               )}
@@ -197,12 +239,12 @@ export default function Page() {
 
               {shown.length > 0 && (
                 <div className="grid" data-testid="results">
-                  {shown.map((r, i) => {
+                  {shown.map((r) => {
                     const b = bandFor(r);
-                    const pct = Math.round((r.confidence ?? r.score) * 100);
+                    const pct = Math.max(0, Math.round((r.confidence ?? r.score) * 100));
                     return (
-                      <div className="result" data-testid="result-card" key={r.specimen_id + i}>
-                        <div className="rank">#{results.indexOf(r) + 1} · {r.specimen_id}</div>
+                      <div className="result" data-testid="result-card" key={r.specimen_id}>
+                        <div className="rank">#{rankOf.get(r.specimen_id)} · {r.specimen_id}</div>
                         <div className="name" data-testid="result-name">{r.label_name}</div>
                         <div className="barwrap">
                           <div className="bar" style={{ width: `${Math.max(3, pct)}%` }} />
