@@ -308,7 +308,8 @@ export default function Page() {
                     <AlertIcon width={26} height={26} />
                   </span>
                   <span className="state-title">Something went wrong</span>
-                  <p>{error ?? "Please try another image."}</p>
+                  {/* Specific reason is shown once, next to the query panel. */}
+                  <p>Check the photo and try again — the details are on the left.</p>
                 </div>
               )}
               {phase === "done" && results.length === 0 && (
