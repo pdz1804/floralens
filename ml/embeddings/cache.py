@@ -16,6 +16,7 @@ import numpy as np
 from PIL import Image
 
 from ml.embeddings.backbone import backbone_name, embed_image
+from ml.preprocess.pipeline import preprocess_fingerprint
 from ml.preprocess.pipeline import preprocess
 
 logger = logging.getLogger(__name__)
@@ -54,6 +55,7 @@ def embed_records(
     return vectors, {
         "model_version": model_version,
         "backbone": backbone_name(),
+        "preprocess_fingerprint": preprocess_fingerprint(),
         "specimens": metadata,
     }
 

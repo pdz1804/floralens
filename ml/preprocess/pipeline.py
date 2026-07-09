@@ -56,6 +56,35 @@ _WHITE_BALANCE_BLEND_ALPHA = 0.25
 _CLAHE_CLIP_LIMIT = 1.2  # lowered from 2.0 — gentler local contrast, less color/edge distortion
 _CLAHE_TILE_GRID = (8, 8)
 
+# Ordered pipeline identity — bump/derive automatically from the tunables below.
+# The gallery is embedded through this exact preprocessing; if a query is later
+# preprocessed with different params, query and gallery embeddings live in
+# different spaces. The fingerprint lets the search service detect a stale cache
+# (built with an older preprocessing) and fail loud instead of degrading silently.
+_PIPELINE_STEPS = (
+    "exif_autoorient", "convert_rgb", "resize", "center_crop", "white_balance", "clahe",
+)
+
+
+def preprocess_fingerprint() -> str:
+    """Short stable hash of the preprocessing params + step order.
+
+    Changing any tunable that alters output pixels (WB blend, CLAHE clip, gain
+    clip, target size, step order) changes this fingerprint, so a re-embed is
+    required and a mismatch against a cached one is detectable.
+    """
+    import hashlib
+
+    payload = repr((
+        DEFAULT_TARGET_SIZE,
+        _WHITE_BALANCE_GAIN_CLIP,
+        round(_WHITE_BALANCE_BLEND_ALPHA, 4),
+        round(_CLAHE_CLIP_LIMIT, 4),
+        _CLAHE_TILE_GRID,
+        _PIPELINE_STEPS,
+    ))
+    return hashlib.sha1(payload.encode()).hexdigest()[:12]
+
 
 @dataclass(frozen=True)
 class PreprocessStep:

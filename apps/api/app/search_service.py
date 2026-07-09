@@ -19,7 +19,7 @@ from ml.embeddings.backbone import backbone_name, embed_image
 from ml.embeddings.cache import load_embeddings
 from ml.eval.calibration import confidence_band
 from ml.index.vector_store import VectorStore
-from ml.preprocess.pipeline import preprocess
+from ml.preprocess.pipeline import preprocess, preprocess_fingerprint
 
 logger = logging.getLogger(__name__)
 
@@ -108,6 +108,19 @@ def get_gallery_store() -> VectorStore:
             f"backbone mismatch: gallery embedded with '{cached_backbone}' but the "
             f"active backbone is '{active_backbone}'. Re-run the embedding pipeline "
             f"(python -m ml.scripts.build_embeddings_index) so query and index share one space."
+        )
+
+    # Same danger for the CV preprocessing: the backbone name is unchanged across
+    # preprocessing versions, so a stale cache (e.g. built with the old
+    # color-destroying white balance) served against the current query pipeline
+    # would silently diverge. Fail loud when the fingerprints disagree.
+    cached_prep = metadata.get("preprocess_fingerprint")
+    active_prep = preprocess_fingerprint()
+    if cached_prep and cached_prep != active_prep:
+        raise RuntimeError(
+            f"preprocessing mismatch: gallery embedded with preprocessing "
+            f"'{cached_prep}' but the active preprocessing is '{active_prep}'. "
+            f"Re-run the embedding pipeline so query and index share one space."
         )
 
     candidate = _load_candidate(settings.model_version)

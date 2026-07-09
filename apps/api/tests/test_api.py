@@ -184,6 +184,19 @@ def test_search_rejects_decompression_bomb():
 
 
 @pytest.mark.skipif(not EMBEDDINGS_CACHE.exists(), reason="embeddings cache not built yet")
+def test_gallery_store_rejects_preprocessing_mismatch(monkeypatch):
+    # A stale cache built with an OLDER preprocessing (backbone name unchanged)
+    # must fail loud — query/gallery would otherwise diverge silently.
+    from apps.api.app import search_service
+
+    search_service.reset_gallery_store_cache()
+    monkeypatch.setattr(search_service, "preprocess_fingerprint", lambda: "different_prep")
+    with pytest.raises(RuntimeError, match="preprocessing mismatch"):
+        search_service.get_gallery_store()
+    search_service.reset_gallery_store_cache()
+
+
+@pytest.mark.skipif(not EMBEDDINGS_CACHE.exists(), reason="embeddings cache not built yet")
 def test_gallery_store_rejects_backbone_mismatch(monkeypatch):
     # If the active backbone differs from the one the gallery was embedded with,
     # the store build must fail loud (same-dim swap would silently corrupt search).
