@@ -16,6 +16,7 @@ import numpy as np
 from PIL import Image
 
 from ml.embeddings.backbone import backbone_name, embed_image
+from ml.preprocess.pipeline import preprocess
 
 logger = logging.getLogger(__name__)
 
@@ -23,15 +24,21 @@ logger = logging.getLogger(__name__)
 def embed_records(
     records: list[dict[str, Any]], model_version: str = "baseline"
 ) -> tuple[dict[str, np.ndarray], dict[str, Any]]:
-    """Embed each record's image. Returns (id -> vector, id -> metadata)."""
+    """Embed each record's image. Returns (id -> vector, id -> metadata).
+
+    Every image runs through the deterministic CV preprocessing pipeline
+    (`ml.preprocess.pipeline.preprocess`: EXIF auto-orient, RGB, resize,
+    center crop, white balance, CLAHE) before reaching the backbone, so the
+    gallery/val/test embedding cache is built under the exact same
+    preprocessing the live `/api/search` query path applies.
+    """
     vectors: dict[str, np.ndarray] = {}
     metadata: dict[str, Any] = {}
     start = time.time()
     for i, rec in enumerate(records):
         with Image.open(rec["image_path"]) as img:
-            # EXIF strip: re-encode via a fresh RGB copy, dropping any EXIF block.
-            clean = Image.new("RGB", img.size)
-            clean.paste(img.convert("RGB"))
+            img.load()
+            clean, _steps = preprocess(img)
             vectors[rec["id"]] = embed_image(clean)
         metadata[rec["id"]] = {
             "label": rec["label"],

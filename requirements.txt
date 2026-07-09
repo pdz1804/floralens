@@ -1,6 +1,9 @@
 # FloraLens backend + ML dependencies.
 # Torch is CPU-only by design (see PRD/IMPLEMENTATION-PLAN: backbone is frozen,
-# no GPU needed for embedding/eval work in Phase 0-1).
+# no GPU needed for embedding/eval work). The GPU available in this
+# environment has only 4GB VRAM and already backs a separate live service;
+# a CUDA build (e.g. torch 2.7.1+cu121) is a documented FUTURE optimization,
+# not used here (see ml/embeddings/backbone.py module docstring).
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
 pydantic==2.10.5
@@ -12,6 +15,15 @@ scikit-learn==1.6.1
 imagehash==4.3.1
 requests==2.32.3
 datasets==5.0.0
+opencv-python-headless==4.10.0.84
+mlflow==2.19.0
+# DINOv3 (primary target backbone) loads via transformers; DINOv3 weights are
+# gated on Hugging Face Hub (verified: 401 without an approved token in this
+# environment), so the active backbone falls back to DINOv2 ViT-L/14 fetched
+# via torch.hub — no extra package needed for that fallback path beyond
+# torch/torchvision already installed. transformers is still required so the
+# DINOv3 attempt (and automatic upgrade if HF access is granted later) works.
+transformers==5.13.0
 
 # Installed separately with the CPU wheel index (see README setup steps):
 # torch==2.7.1

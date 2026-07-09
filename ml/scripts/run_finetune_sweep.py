@@ -32,13 +32,22 @@ from ml.data.splits import load_manifest
 from ml.embeddings.backbone import backbone_name, embedding_dim
 from ml.embeddings.cache import load_embeddings
 from ml.eval.harness import EmbeddedSpecimen
+from ml.tracking.mlflow_utils import mlflow_run
 from ml.train.isolation_guard import assert_no_test_ids
 from ml.train.trainer import TrainConfig, train_head
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-CANDIDATE_VERSION = "finetuned_arcface_v1"
+# Versioned by backbone lineage: the prior "finetuned_arcface_v1" candidate
+# was trained on 512-d OpenCLIP ViT-B-32 embeddings; this candidate is
+# trained on 1024-d DINOv2 ViT-L/14 embeddings (see ml/embeddings/backbone.py)
+# over the full gallery/val/test partitions + CV-preprocessed inputs, so it
+# gets its own version id rather than overwriting an artifact with an
+# incompatible input dimension. The prior candidate is preserved at
+# ml/models/archive_openclip_v1/ for the promotion-gate "vs current active
+# model" comparison.
+CANDIDATE_VERSION = "finetuned_arcface_dinov2_v1"
 EXPERIMENTS_DIR = "ml/eval/reports/experiments"
 MODELS_DIR = "ml/models"
 TRAIN_CACHE_DIR = "ml/data/embeddings_cache/train"
@@ -136,81 +145,118 @@ def main() -> None:
     best_run: dict[str, Any] | None = None
     best_head_state = None
 
-    for i, config in enumerate(grid):
-        run_id = _run_id(config, i)
-        t0 = time.time()
-        result = train_head(
-            config, train_embeddings, train_labels, num_classes, gallery_specimens, val_specimens, input_dim
-        )
-        elapsed = time.time() - t0
-        logger.info(
-            "%s: best_epoch=%d val_recall@5=%.4f val_map@10=%.4f (%.1fs)",
-            run_id, result.best_epoch, result.best_val_recall_at_5, result.final_val_metrics.get("map@10", 0.0), elapsed,
-        )
-
-        run_record = {
-            "run_id": run_id,
-            "config": asdict(config),
-            "dataset_hash": dataset_hash,
-            "seed": config.seed,
+    with mlflow_run(
+        f"finetune_sweep_{CANDIDATE_VERSION}",
+        tags={"stage": "finetune_sweep", "candidate_version": CANDIDATE_VERSION},
+        params={
             "backbone": backbone_name(),
-            "best_epoch": result.best_epoch,
-            "best_val_recall_at_5": result.best_val_recall_at_5,
-            "final_val_metrics": result.final_val_metrics,
-            "epoch_curve": result.epoch_curve,
-            "elapsed_seconds": elapsed,
-            "train_ids": train_base_ids,
-            "val_ids": [s.id for s in val_specimens],
-            "gallery_ids": [s.id for s in gallery_specimens],
+            "dataset_hash": dataset_hash,
+            "seed": manifest["seed"],
+            "num_classes": num_classes,
+            "input_dim": input_dim,
+            "num_gallery": len(gallery_specimens),
+            "num_val": len(val_specimens),
+            "num_train_views": int(train_embeddings.shape[0]),
+            "num_configs": len(grid),
+        },
+    ) as mlf:
+        for i, config in enumerate(grid):
+            run_id = _run_id(config, i)
+            t0 = time.time()
+            result = train_head(
+                config, train_embeddings, train_labels, num_classes, gallery_specimens, val_specimens, input_dim
+            )
+            elapsed = time.time() - t0
+            logger.info(
+                "%s: best_epoch=%d val_recall@5=%.4f val_map@10=%.4f (%.1fs)",
+                run_id, result.best_epoch, result.best_val_recall_at_5, result.final_val_metrics.get("map@10", 0.0), elapsed,
+            )
+
+            # Per-epoch val curve, namespaced by run_id so every hyperparameter
+            # config's curve is visible (and comparable) in the same MLflow run.
+            for point in result.epoch_curve:
+                mlf.log_metric(f"{run_id}/train_loss", point["train_loss"], step=point["epoch"])
+                mlf.log_metric(f"{run_id}/val_recall_at_5", point["val_recall@5"], step=point["epoch"])
+            mlf.log_metric(f"{run_id}/best_val_recall_at_5", result.best_val_recall_at_5)
+            mlf.log_metric(f"{run_id}/elapsed_seconds", elapsed)
+
+            run_record = {
+                "run_id": run_id,
+                "config": asdict(config),
+                "dataset_hash": dataset_hash,
+                "seed": config.seed,
+                "backbone": backbone_name(),
+                "best_epoch": result.best_epoch,
+                "best_val_recall_at_5": result.best_val_recall_at_5,
+                "final_val_metrics": result.final_val_metrics,
+                "epoch_curve": result.epoch_curve,
+                "elapsed_seconds": elapsed,
+                "train_ids": train_base_ids,
+                "val_ids": [s.id for s in val_specimens],
+                "gallery_ids": [s.id for s in gallery_specimens],
+                "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            }
+            (Path(EXPERIMENTS_DIR) / f"{run_id}.json").write_text(json.dumps(run_record, indent=2), encoding="utf-8")
+            runs.append({k: v for k, v in run_record.items() if k not in ("epoch_curve", "train_ids", "val_ids", "gallery_ids")})
+
+            if best_run is None or result.best_val_recall_at_5 > best_run["best_val_recall_at_5"] + 1e-9 or (
+                abs(result.best_val_recall_at_5 - best_run["best_val_recall_at_5"]) <= 1e-9
+                and result.final_val_metrics.get("map@10", 0.0) > best_run["final_val_metrics"].get("map@10", 0.0)
+            ):
+                best_run = run_record
+                best_head_state = result.head_state_dict
+
+        assert best_run is not None and best_head_state is not None
+
+        runs_sorted = sorted(runs, key=lambda r: r["best_val_recall_at_5"], reverse=True)
+        summary = {
+            "dataset_hash": dataset_hash,
+            "backbone": backbone_name(),
+            "num_runs": len(runs),
+            "winner_run_id": best_run["run_id"],
+            "winner_val_metrics": best_run["final_val_metrics"],
+            "runs_ranked": runs_sorted,
             "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         }
-        (Path(EXPERIMENTS_DIR) / f"{run_id}.json").write_text(json.dumps(run_record, indent=2), encoding="utf-8")
-        runs.append({k: v for k, v in run_record.items() if k not in ("epoch_curve", "train_ids", "val_ids", "gallery_ids")})
+        summary_path = Path("ml/eval/reports/finetune_sweep_summary.json")
+        summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+        logger.info("winner: %s val_recall@5=%.4f", best_run["run_id"], best_run["best_val_recall_at_5"])
 
-        if best_run is None or result.best_val_recall_at_5 > best_run["best_val_recall_at_5"] + 1e-9 or (
-            abs(result.best_val_recall_at_5 - best_run["best_val_recall_at_5"]) <= 1e-9
-            and result.final_val_metrics.get("map@10", 0.0) > best_run["final_val_metrics"].get("map@10", 0.0)
-        ):
-            best_run = run_record
-            best_head_state = result.head_state_dict
+        # Persist the winning candidate as a ModelVersion artifact — val metrics only (PRD §14.5 exit criteria).
+        candidate_dir = Path(MODELS_DIR) / CANDIDATE_VERSION
+        candidate_dir.mkdir(parents=True, exist_ok=True)
+        torch.save(best_head_state, candidate_dir / "head.pt")
+        candidate_metadata = {
+            "model_version": CANDIDATE_VERSION,
+            "base_model": backbone_name(),
+            "method": best_run["config"]["loss"],
+            "hyperparams": best_run["config"],
+            "dataset_hash": dataset_hash,
+            "seed": best_run["config"]["seed"],
+            "input_dim": input_dim,
+            "output_dim": best_run["config"]["output_dim"],
+            "head_hidden_dim": best_run["config"]["head_hidden_dim"],
+            "val_metrics": best_run["final_val_metrics"],
+            "best_epoch": best_run["best_epoch"],
+            "source_run_id": best_run["run_id"],
+            "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "note": "val metrics only; test set not touched by this script (PRD 14.2 rule 3)",
+        }
+        metadata_path = candidate_dir / "metadata.json"
+        metadata_path.write_text(json.dumps(candidate_metadata, indent=2), encoding="utf-8")
+        logger.info("candidate ModelVersion saved to %s", candidate_dir)
 
-    assert best_run is not None and best_head_state is not None
-
-    runs_sorted = sorted(runs, key=lambda r: r["best_val_recall_at_5"], reverse=True)
-    summary = {
-        "dataset_hash": dataset_hash,
-        "backbone": backbone_name(),
-        "num_runs": len(runs),
-        "winner_run_id": best_run["run_id"],
-        "winner_val_metrics": best_run["final_val_metrics"],
-        "runs_ranked": runs_sorted,
-        "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-    }
-    Path("ml/eval/reports/finetune_sweep_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
-    logger.info("winner: %s val_recall@5=%.4f", best_run["run_id"], best_run["best_val_recall_at_5"])
-
-    # Persist the winning candidate as a ModelVersion artifact — val metrics only (PRD §14.5 exit criteria).
-    candidate_dir = Path(MODELS_DIR) / CANDIDATE_VERSION
-    candidate_dir.mkdir(parents=True, exist_ok=True)
-    torch.save(best_head_state, candidate_dir / "head.pt")
-    candidate_metadata = {
-        "model_version": CANDIDATE_VERSION,
-        "base_model": backbone_name(),
-        "method": best_run["config"]["loss"],
-        "hyperparams": best_run["config"],
-        "dataset_hash": dataset_hash,
-        "seed": best_run["config"]["seed"],
-        "input_dim": input_dim,
-        "output_dim": best_run["config"]["output_dim"],
-        "head_hidden_dim": best_run["config"]["head_hidden_dim"],
-        "val_metrics": best_run["final_val_metrics"],
-        "best_epoch": best_run["best_epoch"],
-        "source_run_id": best_run["run_id"],
-        "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "note": "val metrics only; test set not touched by this script (PRD 14.2 rule 3)",
-    }
-    (candidate_dir / "metadata.json").write_text(json.dumps(candidate_metadata, indent=2), encoding="utf-8")
-    logger.info("candidate ModelVersion saved to %s", candidate_dir)
+        mlf.log_params(
+            {
+                "winner_run_id": best_run["run_id"],
+                "winner_loss": best_run["config"]["loss"],
+                "winner_output_dim": best_run["config"]["output_dim"],
+            }
+        )
+        mlf.log_metrics({f"winner_val_{k}": v for k, v in best_run["final_val_metrics"].items() if v is not None})
+        mlf.log_artifact(str(summary_path))
+        mlf.log_artifact(str(metadata_path))
+        mlf.log_artifact(str(candidate_dir / "head.pt"))
 
 
 if __name__ == "__main__":

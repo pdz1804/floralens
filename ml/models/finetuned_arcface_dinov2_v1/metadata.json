@@ -1,6 +1,6 @@
 {
   "model_version": "finetuned_arcface_dinov2_v1",
-  "backbone": "dinov2_vitl14",
+  "base_model": "dinov2_vitl14",
   "method": "arcface",
   "hyperparams": {
     "loss": "arcface",
@@ -18,9 +18,10 @@
   },
   "dataset_hash": "1d26d1c1634cd3890ecaa68cd2748df779e6d128",
   "seed": 42,
-  "generated_at": "2026-07-09T15:58:30Z",
-  "gallery_size": 1632,
-  "val": {
+  "input_dim": 1024,
+  "output_dim": 256,
+  "head_hidden_dim": 256,
+  "val_metrics": {
     "mrr": 0.9961287693561531,
     "recall@1": 0.9938875305623472,
     "precision@1": 0.9938875305623472,
@@ -35,21 +36,8 @@
     "num_queries": 818,
     "num_gallery": 1632
   },
-  "test": {
-    "mrr": 0.9942950285248573,
-    "recall@1": 0.991442542787286,
-    "precision@1": 0.991442542787286,
-    "map@1": 0.991442542787286,
-    "recall@5": 0.9975550122249389,
-    "precision@5": 0.9938875305623472,
-    "map@5": 0.9946736620483566,
-    "recall@10": 0.9975550122249389,
-    "precision@10": 0.9761613691931526,
-    "map@10": 0.9949125126823345,
-    "silhouette": 0.9360605478286743,
-    "num_queries": 818,
-    "num_gallery": 1632
-  },
-  "val_test_recall5_gap": 0.0012224938875304847,
-  "overfitting_flag": false
+  "best_epoch": 1,
+  "source_run_id": "run08_arcface_lr0.001_hd256_od256_m0.3",
+  "created_at": "2026-07-09T15:58:06Z",
+  "note": "val metrics only; test set not touched by this script (PRD 14.2 rule 3)"
 }

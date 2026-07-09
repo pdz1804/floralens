@@ -71,6 +71,10 @@ def test_search_multipart_returns_top1_correct_class():
     assert len(body["results"]) > 0
     assert body["results"][0]["label_name"] == meta["label_name"]
     assert body["results"][0]["score"] > 0.99  # querying with the exact same image
+    # Additive description field (curated botanical description; display only).
+    assert "description" in body["results"][0]
+    assert isinstance(body["results"][0]["description"], str)
+    assert len(body["results"][0]["description"]) > 0
 
 
 @pytest.mark.skipif(not EMBEDDINGS_CACHE.exists(), reason="embeddings cache not built yet")
@@ -113,3 +117,42 @@ def test_specimen_image_rejects_traversal_id():
     # A crafted id that is not a known specimen must never resolve to a file.
     resp = client.get("/api/specimen/..%2F..%2F..%2Fetc%2Fpasswd/image")
     assert resp.status_code in (404, 400)
+
+
+def _tiny_jpeg_bytes() -> bytes:
+    img = Image.new("RGB", (64, 48), color=(180, 90, 60))
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG")
+    return buf.getvalue()
+
+
+def test_preprocess_preview_returns_steps_and_images():
+    resp = client.post(
+        "/api/preprocess-preview",
+        files={"file": ("query.jpg", io.BytesIO(_tiny_jpeg_bytes()), "image/jpeg")},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert len(body["steps"]) > 0
+    for step in body["steps"]:
+        assert step["name"] and step["description"]
+    assert isinstance(body["before_png_b64"], str) and len(body["before_png_b64"]) > 0
+    assert isinstance(body["after_png_b64"], str) and len(body["after_png_b64"]) > 0
+    # Both must decode as valid base64.
+    base64.b64decode(body["before_png_b64"], validate=True)
+    base64.b64decode(body["after_png_b64"], validate=True)
+
+
+def test_preprocess_preview_rejects_missing_file():
+    resp = client.post("/api/preprocess-preview")
+    assert resp.status_code == 422  # FastAPI validation: required 'file' field missing
+
+
+def test_pipeline_snapshot_returns_required_keys():
+    resp = client.get("/api/pipeline")
+    assert resp.status_code == 200
+    body = resp.json()
+    for key in ("dataset", "preprocessing", "backbone", "eval", "calibration", "promotion", "model_version"):
+        assert key in body
+    assert len(body["preprocessing"]) > 0
+    assert body["backbone"]["frozen"] is True

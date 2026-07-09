@@ -19,6 +19,7 @@ from ml.embeddings.backbone import backbone_name
 from ml.embeddings.cache import load_embeddings
 from ml.eval.harness import EmbeddedSpecimen, run_retrieval_eval
 from ml.index.vector_store import VectorStore
+from ml.tracking.mlflow_utils import mlflow_run
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -70,39 +71,52 @@ def main() -> None:
         "gallery_size": len(gallery_store),
     }
 
-    for split in ("val", "test"):
-        queries = _build_queries(vectors, metadata, split)
-        logger.info("evaluating split=%s with %d queries", split, len(queries))
-        result = run_retrieval_eval(queries, gallery_store)
-        report[split] = result["aggregate"]
-        report[f"{split}_per_query_count"] = len(result["per_query"])
-        logger.info("%s aggregate: %s", split, result["aggregate"])
+    with mlflow_run(
+        "baseline_eval",
+        tags={"stage": "baseline_eval"},
+        params={
+            "backbone": backbone_name(),
+            "dataset_hash": manifest["dataset_hash"],
+            "seed": manifest["seed"],
+            "gallery_size": len(gallery_store),
+        },
+    ) as mlf:
+        for split in ("val", "test"):
+            queries = _build_queries(vectors, metadata, split)
+            logger.info("evaluating split=%s with %d queries", split, len(queries))
+            result = run_retrieval_eval(queries, gallery_store)
+            report[split] = result["aggregate"]
+            report[f"{split}_per_query_count"] = len(result["per_query"])
+            logger.info("%s aggregate: %s", split, result["aggregate"])
+            mlf.log_metrics({f"{split}_{k}": v for k, v in result["aggregate"].items() if v is not None})
 
-    # Anti-metric guardrail check (PRD §5): val<->test Recall@5 gap.
-    val_r5 = report["val"]["recall@5"]
-    test_r5 = report["test"]["recall@5"]
-    report["val_test_recall5_gap"] = abs(val_r5 - test_r5)
-    report["overfitting_flag"] = report["val_test_recall5_gap"] > 0.05
+        # Anti-metric guardrail check (PRD §5): val<->test Recall@5 gap.
+        val_r5 = report["val"]["recall@5"]
+        test_r5 = report["test"]["recall@5"]
+        report["val_test_recall5_gap"] = abs(val_r5 - test_r5)
+        report["overfitting_flag"] = report["val_test_recall5_gap"] > 0.05
+        mlf.log_metric("val_test_recall5_gap", report["val_test_recall5_gap"])
 
-    out_dir = Path(REPORTS_DIR)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / "baseline_eval_report.json"
-    out_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
-    logger.info("baseline EvalReport saved to %s", out_path)
-    logger.info(
-        "val Recall@1=%.3f Recall@5=%.3f mAP@10=%.3f MRR=%.3f",
-        report["val"]["recall@1"],
-        report["val"]["recall@5"],
-        report["val"]["map@10"],
-        report["val"]["mrr"],
-    )
-    logger.info(
-        "test Recall@1=%.3f Recall@5=%.3f mAP@10=%.3f MRR=%.3f",
-        report["test"]["recall@1"],
-        report["test"]["recall@5"],
-        report["test"]["map@10"],
-        report["test"]["mrr"],
-    )
+        out_dir = Path(REPORTS_DIR)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_path = out_dir / "baseline_eval_report.json"
+        out_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+        mlf.log_artifact(str(out_path))
+        logger.info("baseline EvalReport saved to %s", out_path)
+        logger.info(
+            "val Recall@1=%.3f Recall@5=%.3f mAP@10=%.3f MRR=%.3f",
+            report["val"]["recall@1"],
+            report["val"]["recall@5"],
+            report["val"]["map@10"],
+            report["val"]["mrr"],
+        )
+        logger.info(
+            "test Recall@1=%.3f Recall@5=%.3f mAP@10=%.3f MRR=%.3f",
+            report["test"]["recall@1"],
+            report["test"]["recall@5"],
+            report["test"]["map@10"],
+            report["test"]["mrr"],
+        )
 
 
 if __name__ == "__main__":

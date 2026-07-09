@@ -38,6 +38,7 @@ from torchvision.transforms import functional as F
 
 from ml.data.splits import DEFAULT_SEED, load_manifest
 from ml.embeddings.backbone import backbone_name, embed_image
+from ml.preprocess.pipeline import preprocess
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -86,8 +87,12 @@ def embed_augmented_train_subset(
     done = 0
     for rec in records:
         with Image.open(rec["image_path"]) as img:
-            clean = Image.new("RGB", img.size)
-            clean.paste(img.convert("RGB"))
+            img.load()
+            # Same deterministic CV preprocessing as the gallery/val/test cache
+            # (EXIF auto-orient, RGB, resize, center crop, white balance,
+            # CLAHE) runs first; train-only geometric augmentation (flip/
+            # rotate) is then layered on top of the preprocessed image.
+            clean, _steps = preprocess(img)
             for view in views:
                 view_image = _augmented_view(clean, view)
                 view_id = f"{rec['id']}::{view}"

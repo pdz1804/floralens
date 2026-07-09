@@ -23,12 +23,13 @@ from ml.embeddings.backbone import backbone_name
 from ml.embeddings.cache import load_embeddings
 from ml.eval.harness import EmbeddedSpecimen, run_retrieval_eval
 from ml.index.vector_store import VectorStore
+from ml.tracking.mlflow_utils import mlflow_run
 from ml.train.model_io import load_candidate_head, project_embeddings
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-CANDIDATE_VERSION = "finetuned_arcface_v1"
+CANDIDATE_VERSION = "finetuned_arcface_dinov2_v1"
 MODELS_DIR = "ml/models"
 REPORTS_DIR = "ml/eval/reports"
 
@@ -88,22 +89,37 @@ def main() -> None:
         "gallery_size": len(gallery_store),
     }
 
-    val_result = run_retrieval_eval(build_queries(val_ids, projected_val, val_meta), gallery_store)
-    report["val"] = val_result["aggregate"]
-    logger.info("candidate val (re-confirmed, same protocol): %s", report["val"])
+    with mlflow_run(
+        f"test_eval_{CANDIDATE_VERSION}",
+        tags={"stage": "test_eval", "candidate_version": CANDIDATE_VERSION},
+        params={
+            "backbone": backbone_name(),
+            "method": candidate_metadata["method"],
+            "dataset_hash": manifest["dataset_hash"],
+            "seed": candidate_metadata["seed"],
+            "gallery_size": len(gallery_store),
+        },
+    ) as mlf:
+        val_result = run_retrieval_eval(build_queries(val_ids, projected_val, val_meta), gallery_store)
+        report["val"] = val_result["aggregate"]
+        logger.info("candidate val (re-confirmed, same protocol): %s", report["val"])
+        mlf.log_metrics({f"val_{k}": v for k, v in report["val"].items() if v is not None})
 
-    # The one-shot test read.
-    test_result = run_retrieval_eval(build_queries(test_ids, projected_test, test_meta), gallery_store)
-    report["test"] = test_result["aggregate"]
-    logger.info("candidate TEST (one-shot): %s", report["test"])
+        # The one-shot test read.
+        test_result = run_retrieval_eval(build_queries(test_ids, projected_test, test_meta), gallery_store)
+        report["test"] = test_result["aggregate"]
+        logger.info("candidate TEST (one-shot): %s", report["test"])
+        mlf.log_metrics({f"test_{k}": v for k, v in report["test"].items() if v is not None})
 
-    report["val_test_recall5_gap"] = abs(report["val"]["recall@5"] - report["test"]["recall@5"])
-    report["overfitting_flag"] = report["val_test_recall5_gap"] > 0.05
+        report["val_test_recall5_gap"] = abs(report["val"]["recall@5"] - report["test"]["recall@5"])
+        report["overfitting_flag"] = report["val_test_recall5_gap"] > 0.05
+        mlf.log_metric("val_test_recall5_gap", report["val_test_recall5_gap"])
 
-    out_path = Path(REPORTS_DIR) / "candidate_test_eval_report.json"
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
-    logger.info("candidate test EvalReport saved to %s", out_path)
+        out_path = Path(REPORTS_DIR) / "candidate_test_eval_report.json"
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+        mlf.log_artifact(str(out_path))
+        logger.info("candidate test EvalReport saved to %s", out_path)
 
 
 if __name__ == "__main__":

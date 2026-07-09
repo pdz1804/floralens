@@ -14,16 +14,18 @@ import numpy as np
 from PIL import Image
 
 from apps.api.app.config import settings
+from ml.descriptions.loader import get_description
 from ml.embeddings.backbone import embed_image
 from ml.embeddings.cache import load_embeddings
 from ml.eval.calibration import confidence_band
 from ml.index.vector_store import VectorStore
+from ml.preprocess.pipeline import preprocess
 
 logger = logging.getLogger(__name__)
 
 
 class SearchResultItem:
-    __slots__ = ("specimen_id", "label", "label_name", "score", "confidence", "band")
+    __slots__ = ("specimen_id", "label", "label_name", "score", "confidence", "band", "description")
 
     def __init__(
         self,
@@ -33,6 +35,7 @@ class SearchResultItem:
         score: float,
         confidence: float | None = None,
         band: str | None = None,
+        description: str | None = None,
     ) -> None:
         self.specimen_id = specimen_id
         self.label = label
@@ -44,6 +47,9 @@ class SearchResultItem:
         # specimen_id/label/label_name/score contract is unchanged.
         self.confidence = confidence
         self.band = band
+        # Curated botanical description (display only — never fed into
+        # embeddings/training). None if the label has no curated entry.
+        self.description = description
 
 
 @functools.lru_cache(maxsize=1)
@@ -163,13 +169,29 @@ def get_specimen_image_path(specimen_id: str) -> Path | None:
     return path
 
 
-def strip_exif_and_load(image_bytes: bytes) -> Image.Image:
-    """Decode image bytes and return a clean RGB copy with EXIF metadata dropped."""
+def decode_image_bytes(image_bytes: bytes) -> Image.Image:
+    """Decode raw uploaded bytes into a PIL image, no preprocessing applied.
+
+    Used where the *original* (pre-preprocessing) image is needed, e.g. the
+    "before" side of `/api/preprocess-preview`.
+    """
     with Image.open(io.BytesIO(image_bytes)) as img:
         img.load()
-        clean = Image.new("RGB", img.size)
-        clean.paste(img.convert("RGB"))
-        return clean
+        return img.convert("RGB") if img.mode != "RGB" else img.copy()
+
+
+def strip_exif_and_load(image_bytes: bytes) -> Image.Image:
+    """Decode image bytes and run the full CV preprocessing pipeline
+    (`ml.preprocess.pipeline.preprocess`: EXIF auto-orient, RGB, resize,
+    center crop, white balance, CLAHE), returning the ready-to-embed image.
+
+    This is the query-path counterpart to `ml.embeddings.cache.embed_records`
+    — both apply identical preprocessing so query-time and index-time
+    embeddings live in the same, consistently-cleaned image space.
+    """
+    raw = decode_image_bytes(image_bytes)
+    processed, _steps = preprocess(raw)
+    return processed
 
 
 def search_image(image: Image.Image, top_k: int | None = None) -> tuple[str, list[SearchResultItem]]:
@@ -210,6 +232,7 @@ def search_image(image: Image.Image, top_k: int | None = None) -> tuple[str, lis
                 score=r.score,
                 confidence=confidence,
                 band=band,
+                description=get_description(r.metadata["label_name"]),
             )
         )
     return store.model_version, items

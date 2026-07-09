@@ -1,12 +1,17 @@
-"""Deterministic stratified subset selection for the compute-bound embedding step.
+"""Deterministic selection of which manifest records get embedded.
 
-The full split manifest (built over all ~8189 images) is correct at full
-scale, but embedding every image on CPU is slow. For Phase 1 we embed a
-documented, stratified subset: up to `per_class_cap[split]` images per class
-per split, selected deterministically (stable sort by id, no randomness
-beyond what's already baked into the manifest's split assignment). `train`
-is not embedded at all in Phase 1 — the backbone is frozen and no training
-happens yet, so train images are irrelevant until Phase 3.
+`select_full_eval_set` embeds the FULL gallery/val/test partitions (every
+image in those three splits, no per-class cap) — the "bigger dataset"
+upgrade: the prior smaller subset (~1801 images, `select_embedding_subset`
+below) covered a stratified fraction of each split; embedding the full
+gallery/val/test partitions instead uses the entire ~3200+ image eval corpus
+at full retrieval-eval scale. `train` is still not embedded here — it is
+irrelevant until fine-tuning (`ml.scripts.embed_train_subset` handles the
+train-only, augmented, capped subset used to fit the projection head).
+
+`select_embedding_subset` (with a per-class cap) is kept for a fast, smaller
+dev/smoke run — e.g. local iteration on preprocessing/backbone code without
+paying the full embedding cost.
 """
 from __future__ import annotations
 
@@ -14,6 +19,13 @@ from collections import defaultdict
 from typing import Any
 
 DEFAULT_PER_CLASS_CAP = {"gallery": 10, "val": 4, "test": 4, "train": 0}
+FULL_EVAL_SPLITS = ("gallery", "val", "test")
+
+
+def select_full_eval_set(manifest: dict[str, Any], splits: tuple[str, ...] = FULL_EVAL_SPLITS) -> list[dict[str, Any]]:
+    """Every record in `splits` (default gallery+val+test), no cap."""
+    selected = [rec for rec in manifest["records"] if rec["split"] in splits]
+    return sorted(selected, key=lambda r: r["id"])
 
 
 def select_embedding_subset(

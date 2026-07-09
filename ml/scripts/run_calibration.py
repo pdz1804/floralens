@@ -21,12 +21,13 @@ from ml.eval.calibration import build_query_gallery_pairs, confidence_band, expe
 from ml.eval.harness import EmbeddedSpecimen
 from ml.embeddings.cache import load_embeddings
 from ml.index.vector_store import VectorStore
+from ml.tracking.mlflow_utils import mlflow_run
 from ml.train.model_io import load_candidate_head, project_embeddings
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-CANDIDATE_VERSION = "finetuned_arcface_v1"
+CANDIDATE_VERSION = "finetuned_arcface_dinov2_v1"
 MODELS_DIR = "ml/models"
 REPORTS_DIR = "ml/eval/reports"
 CALIBRATION_METHOD = "isotonic"
@@ -72,53 +73,73 @@ def main() -> None:
     val_scores, val_labels = build_query_gallery_pairs(val_queries, gallery_store)
     logger.info("val calibration pairs: %d (positive rate=%.4f)", len(val_scores), val_labels.mean())
 
-    calibrator = fit_calibrator(val_scores, val_labels, method=CALIBRATION_METHOD)
-    # Persist the fitted calibrator next to the head weights so
-    # apps/api/app/search_service can load it at query time if/when this
-    # candidate is promoted (MODEL_VERSION env switch). Written regardless
-    # of the eventual promotion decision — harmless if never activated.
-    (candidate_dir / "calibrator.pkl").write_bytes(pickle.dumps(calibrator))
+    with mlflow_run(
+        f"calibration_{CANDIDATE_VERSION}",
+        tags={"stage": "calibration", "candidate_version": CANDIDATE_VERSION},
+        params={
+            "calibration_method": CALIBRATION_METHOD,
+            "fit_on_split": "val",
+            "evaluated_on_split": "test",
+            "num_val_pairs": int(len(val_scores)),
+        },
+    ) as mlf:
+        calibrator = fit_calibrator(val_scores, val_labels, method=CALIBRATION_METHOD)
+        # Persist the fitted calibrator next to the head weights so
+        # apps/api/app/search_service can load it at query time if/when this
+        # candidate is promoted (MODEL_VERSION env switch). Written regardless
+        # of the eventual promotion decision — harmless if never activated.
+        (candidate_dir / "calibrator.pkl").write_bytes(pickle.dumps(calibrator))
 
-    # Uncalibrated baseline: naive rescale of raw cosine [-1,1] -> [0,1].
-    uncalibrated_val_conf = (val_scores + 1.0) / 2.0
-    ece_val_before, _ = expected_calibration_error(uncalibrated_val_conf, val_labels)
-    calibrated_val_conf = calibrator.predict(val_scores)
-    ece_val_after, val_bins = expected_calibration_error(calibrated_val_conf, val_labels)
+        # Uncalibrated baseline: naive rescale of raw cosine [-1,1] -> [0,1].
+        uncalibrated_val_conf = (val_scores + 1.0) / 2.0
+        ece_val_before, _ = expected_calibration_error(uncalibrated_val_conf, val_labels)
+        calibrated_val_conf = calibrator.predict(val_scores)
+        ece_val_after, val_bins = expected_calibration_error(calibrated_val_conf, val_labels)
 
-    test_scores, test_labels = build_query_gallery_pairs(test_queries, gallery_store)
-    logger.info("test calibration pairs: %d (positive rate=%.4f)", len(test_scores), test_labels.mean())
-    uncalibrated_test_conf = (test_scores + 1.0) / 2.0
-    ece_test_before, _ = expected_calibration_error(uncalibrated_test_conf, test_labels)
-    calibrated_test_conf = calibrator.predict(test_scores)
-    ece_test_after, test_bins = expected_calibration_error(calibrated_test_conf, test_labels)
+        test_scores, test_labels = build_query_gallery_pairs(test_queries, gallery_store)
+        logger.info("test calibration pairs: %d (positive rate=%.4f)", len(test_scores), test_labels.mean())
+        uncalibrated_test_conf = (test_scores + 1.0) / 2.0
+        ece_test_before, _ = expected_calibration_error(uncalibrated_test_conf, test_labels)
+        calibrated_test_conf = calibrator.predict(test_scores)
+        ece_test_after, test_bins = expected_calibration_error(calibrated_test_conf, test_labels)
 
-    band_counts = {"high": 0, "medium": 0, "low": 0}
-    for p in calibrated_test_conf:
-        band_counts[confidence_band(float(p))] += 1
+        band_counts = {"high": 0, "medium": 0, "low": 0}
+        for p in calibrated_test_conf:
+            band_counts[confidence_band(float(p))] += 1
 
-    report = {
-        "model_version": CANDIDATE_VERSION,
-        "calibration_method": CALIBRATION_METHOD,
-        "fit_on_split": "val",
-        "evaluated_on_split": "test",
-        "num_val_pairs": int(len(val_scores)),
-        "num_test_pairs": int(len(test_scores)),
-        "ece_val_before_calibration": ece_val_before,
-        "ece_val_after_calibration": ece_val_after,
-        "ece_test_before_calibration": ece_test_before,
-        "ece_test_after_calibration": ece_test_after,
-        "test_reliability_bins": test_bins,
-        "band_thresholds": {"high": 0.70, "medium": 0.40},
-        "test_band_counts": band_counts,
-        "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-    }
-    out_path = Path(REPORTS_DIR) / "candidate_calibration_report.json"
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
-    logger.info(
-        "calibration: ECE test before=%.4f after=%.4f (target <= 0.05); saved to %s",
-        ece_test_before, ece_test_after, out_path,
-    )
+        report = {
+            "model_version": CANDIDATE_VERSION,
+            "calibration_method": CALIBRATION_METHOD,
+            "fit_on_split": "val",
+            "evaluated_on_split": "test",
+            "num_val_pairs": int(len(val_scores)),
+            "num_test_pairs": int(len(test_scores)),
+            "ece_val_before_calibration": ece_val_before,
+            "ece_val_after_calibration": ece_val_after,
+            "ece_test_before_calibration": ece_test_before,
+            "ece_test_after_calibration": ece_test_after,
+            "test_reliability_bins": test_bins,
+            "band_thresholds": {"high": 0.70, "medium": 0.40},
+            "test_band_counts": band_counts,
+            "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        }
+        out_path = Path(REPORTS_DIR) / "candidate_calibration_report.json"
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+        mlf.log_metrics(
+            {
+                "ece_val_before": ece_val_before,
+                "ece_val_after": ece_val_after,
+                "ece_test_before": ece_test_before,
+                "ece_test_after": ece_test_after,
+            }
+        )
+        mlf.log_artifact(str(out_path))
+        mlf.log_artifact(str(candidate_dir / "calibrator.pkl"))
+        logger.info(
+            "calibration: ECE test before=%.4f after=%.4f (target <= 0.05); saved to %s",
+            ece_test_before, ece_test_after, out_path,
+        )
 
 
 if __name__ == "__main__":

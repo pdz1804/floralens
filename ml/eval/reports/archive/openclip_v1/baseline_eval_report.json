@@ -1,0 +1,42 @@
+{
+  "model_version": "baseline",
+  "backbone": "open_clip_vit_b32_laion2b",
+  "dataset_hash": "1d26d1c1634cd3890ecaa68cd2748df779e6d128",
+  "seed": 42,
+  "generated_at": "2026-07-09T08:30:10Z",
+  "gallery_size": 985,
+  "val": {
+    "mrr": 0.9459014161220044,
+    "recall@1": 0.9215686274509803,
+    "precision@1": 0.9215686274509803,
+    "map@1": 0.9215686274509803,
+    "recall@5": 0.9779411764705882,
+    "precision@5": 0.8019607843137264,
+    "map@5": 0.9147637527233107,
+    "recall@10": 0.9877450980392157,
+    "precision@10": 0.6433823529411767,
+    "map@10": 0.8733822120669256,
+    "silhouette": 0.22362710535526276,
+    "num_queries": 408,
+    "num_gallery": 985
+  },
+  "val_per_query_count": 408,
+  "test": {
+    "mrr": 0.9427384842826019,
+    "recall@1": 0.9142156862745098,
+    "precision@1": 0.9142156862745098,
+    "map@1": 0.9142156862745098,
+    "recall@5": 0.9779411764705882,
+    "precision@5": 0.8044117647058836,
+    "map@5": 0.9125612745098032,
+    "recall@10": 0.9901960784313726,
+    "precision@10": 0.6465686274509811,
+    "map@10": 0.869411733057421,
+    "silhouette": 0.22731199860572815,
+    "num_queries": 408,
+    "num_gallery": 985
+  },
+  "test_per_query_count": 408,
+  "val_test_recall5_gap": 0.0,
+  "overfitting_flag": false
+}

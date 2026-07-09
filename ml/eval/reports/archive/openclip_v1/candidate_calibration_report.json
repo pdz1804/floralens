@@ -1,0 +1,94 @@
+{
+  "model_version": "finetuned_arcface_v1",
+  "calibration_method": "isotonic",
+  "fit_on_split": "val",
+  "evaluated_on_split": "test",
+  "num_val_pairs": 401880,
+  "num_test_pairs": 401880,
+  "ece_val_before_calibration": 0.4992269470335628,
+  "ece_val_after_calibration": 1.0856913722446664e-19,
+  "ece_test_before_calibration": 0.4990071708098262,
+  "ece_test_after_calibration": 0.00039475283813424696,
+  "test_reliability_bins": [
+    {
+      "bin_lower": 0.0,
+      "bin_upper": 0.1,
+      "mean_confidence": 0.0012496809269766933,
+      "empirical_accuracy": 0.0013571327669364116,
+      "count": 396424
+    },
+    {
+      "bin_lower": 0.1,
+      "bin_upper": 0.2,
+      "mean_confidence": 0.17102429899812477,
+      "empirical_accuracy": 0.15374841168996187,
+      "count": 787
+    },
+    {
+      "bin_lower": 0.2,
+      "bin_upper": 0.30000000000000004,
+      "mean_confidence": 0.2418229383937227,
+      "empirical_accuracy": 0.25609756097560976,
+      "count": 738
+    },
+    {
+      "bin_lower": 0.30000000000000004,
+      "bin_upper": 0.4,
+      "mean_confidence": 0.3697584137462437,
+      "empirical_accuracy": 0.3114754098360656,
+      "count": 122
+    },
+    {
+      "bin_lower": 0.4,
+      "bin_upper": 0.5,
+      "mean_confidence": 0.4457926002244823,
+      "empirical_accuracy": 0.40229885057471265,
+      "count": 522
+    },
+    {
+      "bin_lower": 0.5,
+      "bin_upper": 0.6000000000000001,
+      "mean_confidence": 0.5271633984987705,
+      "empirical_accuracy": 0.5072463768115942,
+      "count": 138
+    },
+    {
+      "bin_lower": 0.6000000000000001,
+      "bin_upper": 0.7000000000000001,
+      "mean_confidence": 0.648832768768566,
+      "empirical_accuracy": 0.5886939571150097,
+      "count": 513
+    },
+    {
+      "bin_lower": 0.7000000000000001,
+      "bin_upper": 0.8,
+      "mean_confidence": 0.7603170060818817,
+      "empirical_accuracy": 0.7280701754385965,
+      "count": 114
+    },
+    {
+      "bin_lower": 0.8,
+      "bin_upper": 0.9,
+      "mean_confidence": 0.8328083503900433,
+      "empirical_accuracy": 0.8073654390934845,
+      "count": 353
+    },
+    {
+      "bin_lower": 0.9,
+      "bin_upper": 1.0,
+      "mean_confidence": 0.9773372420755634,
+      "empirical_accuracy": 0.9700322729368372,
+      "count": 2169
+    }
+  ],
+  "band_thresholds": {
+    "high": 0.7,
+    "medium": 0.4
+  },
+  "test_band_counts": {
+    "high": 2636,
+    "medium": 1173,
+    "low": 398071
+  },
+  "generated_at": "2026-07-09T08:53:52Z"
+}

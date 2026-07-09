@@ -16,6 +16,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from apps.api.app.config import settings
+from apps.api.app.pipeline_service import build_preprocess_preview, get_pipeline_snapshot
 from apps.api.app.search_service import (
     get_specimen_image_path,
     search_image,
@@ -43,6 +44,9 @@ class SearchResultOut(BaseModel):
     # Calibrated by a promoted model (Phase 3b); null when the baseline is active.
     confidence: float | None = Field(default=None, ge=0.0, le=1.0)
     band: str | None = None
+    # Curated botanical description (display only); null if the label has no
+    # curated entry. Never derived from or fed into embeddings/training.
+    description: str | None = None
 
 
 class SearchResponse(BaseModel):
@@ -128,10 +132,46 @@ async def search(request: Request, file: UploadFile | None = File(default=None))
                 score=r.score,
                 confidence=r.confidence,
                 band=r.band,
+                description=r.description,
             )
             for r in results
         ],
     )
+
+
+class PreprocessStepOut(BaseModel):
+    name: str
+    description: str
+
+
+class PreprocessPreviewResponse(BaseModel):
+    steps: list[PreprocessStepOut]
+    before_png_b64: str
+    after_png_b64: str
+
+
+@app.post("/api/preprocess-preview", response_model=PreprocessPreviewResponse)
+async def preprocess_preview(file: UploadFile = File(...)) -> PreprocessPreviewResponse:
+    """Run the CV preprocessing pipeline on an uploaded image and return the
+    applied steps plus base64-encoded before/after PNGs, for the Pipeline
+    page's before/after preview. Same size/content-type bounds as /api/search."""
+    raw = await file.read()
+    raw = _validate_and_decode_bytes(raw, file.content_type)
+    try:
+        preview = build_preprocess_preview(raw)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"could not process image: {exc}") from exc
+    return PreprocessPreviewResponse(**preview)
+
+
+@app.get("/api/pipeline")
+def pipeline() -> dict:
+    """Read-only snapshot of the active ML pipeline (dataset scale,
+    preprocessing steps, backbone, val/test eval, calibration, promotion
+    decision) sourced from the real eval reports / model card on disk — for
+    the app's Pipeline page. No fixed response_model: the shape mirrors
+    whatever the underlying eval/calibration/promotion JSON reports contain."""
+    return get_pipeline_snapshot()
 
 
 @app.get("/api/specimen/{specimen_id}/image")

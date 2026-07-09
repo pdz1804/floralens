@@ -1,7 +1,14 @@
-# Infra stub for later phases (Postgres/pgvector, MinIO, MLflow — PRD §13, IMPLEMENTATION-PLAN Phase 0).
-# Phase 0-1 deliberately does NOT depend on this: the vector index is
+# Infra stub for later phases (Postgres/pgvector, MinIO — PRD §13, IMPLEMENTATION-PLAN Phase 0).
+# Phase 0-1 deliberately does NOT depend on postgres: the vector index is
 # in-memory (ml/index/vector_store.py) and there is no persistence layer
 # yet. Uncomment/extend when Phase 2+ needs real storage.
+#
+# `mlflow` IS used starting with the ML pipeline upgrade (bigger dataset +
+# DINOv2 backbone + preprocessing): training/eval scripts log directly to the
+# sqlite store at ./mlflow/mlflow.db (see ml/tracking/mlflow_utils.py) even
+# when this container is down — the container only serves the browsable UI
+# over that same file-backed store, mounted from the host so the UI and the
+# scripts' direct sqlite writes always see the same runs.
 services:
   postgres:
     image: postgres:16
@@ -13,6 +20,15 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+
+  mlflow:
+    image: python:3.11-slim
+    working_dir: /mlflow-data
+    command: ["sh", "-c", "pip install --no-cache-dir mlflow==2.19.0 && mlflow server --backend-store-uri sqlite:////mlflow-data/mlflow.db --default-artifact-root /mlflow-data/mlartifacts --host 0.0.0.0 --port 5000"]
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./mlflow:/mlflow-data
 
 volumes:
   postgres_data:

@@ -1,0 +1,34 @@
+{
+  "decision": "PROMOTE",
+  "reasons": [
+    "candidate test Recall@5 (0.9902) within tolerance of baseline (0.9779); val/test gap and ECE within bounds"
+  ],
+  "comparison": {
+    "baseline": {
+      "model_version": "baseline",
+      "test_recall@1": 0.9142156862745098,
+      "test_recall@5": 0.9779411764705882,
+      "test_recall@10": 0.9901960784313726,
+      "test_map@10": 0.869411733057421,
+      "test_mrr": 0.9427384842826019
+    },
+    "candidate": {
+      "model_version": "finetuned_arcface_v1",
+      "method": "arcface",
+      "val_recall@5": 0.9926470588235294,
+      "test_recall@1": 0.9534313725490197,
+      "test_recall@5": 0.9901960784313726,
+      "test_recall@10": 0.9975490196078431,
+      "test_map@10": 0.9354373427611782,
+      "test_mrr": 0.9697167755991285,
+      "val_test_recall5_gap": 0.002450980392156854
+    },
+    "calibration_ece_test": 0.00039475283813424696
+  },
+  "thresholds": {
+    "recall5_tolerance": 0.02,
+    "val_test_gap_max": 0.05,
+    "ece_max": 0.05
+  },
+  "generated_at": "2026-07-09T08:54:00Z"
+}
