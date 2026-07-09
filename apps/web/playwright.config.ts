@@ -18,6 +18,9 @@ export default defineConfig({
     screenshot: "on",
     video: "retain-on-failure",
     trace: "retain-on-failure",
+    // SwiftShader gives headless Chromium a real WebGL context so the 3D galaxy
+    // (instanced point cloud) renders with per-instance colors in screenshots.
+    launchOptions: { args: ["--use-gl=angle", "--use-angle=swiftshader", "--ignore-gpu-blocklist"] },
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
 });

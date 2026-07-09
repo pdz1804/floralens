@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Canvas, type ThreeEvent } from "@react-three/fiber";
+import { Canvas, useThree, type ThreeEvent } from "@react-three/fiber";
 import { Html, OrbitControls } from "@react-three/drei";
 import * as THREE from "three";
 import { getGalaxy, type GalaxyData, type GalaxyPoint } from "@/lib/api";
@@ -12,6 +12,13 @@ import { AlertIcon, GridIcon, SparkleIcon } from "./icons";
 // variables into a WebGL color (three.js needs a concrete hex at draw time).
 const DIM_COLOR = "#5b6b5d";
 const TOP_SPECIES_COUNT = 12;
+// World-space point size (points live in a roughly [-1, 1] normalized cube) —
+// tuned so the cloud reads clearly at the default camera distance without
+// individual points collapsing to sub-pixel dots.
+const POINT_SIZE = 0.05;
+// Raycaster hit-radius for THREE.Points picking, in the same world units —
+// a bit larger than the visual point so hover/click stay easy to land.
+const POINT_PICK_THRESHOLD = 0.03;
 
 function detectWebGL(): boolean {
   try {
@@ -57,8 +64,21 @@ function buildLegend(points: GalaxyPoint[]): LegendEntry[] {
   return [...byName.values()].sort((a, b) => b.count - a.count).slice(0, TOP_SPECIES_COUNT);
 }
 
-/** Instanced point cloud: one draw call for every gallery embedding, colored
- * by species and pickable (hover + click) via r3f's per-instance events. */
+/** Tunes the shared raycaster's Points picking radius once on mount — must
+ * run inside the Canvas (useThree only works within the r3f tree). */
+function RaycasterTuning({ threshold }: { threshold: number }) {
+  const { raycaster } = useThree();
+  useEffect(() => {
+    raycaster.params.Points = { threshold };
+  }, [raycaster, threshold]);
+  return null;
+}
+
+/** Colored point cloud: a single `THREE.Points` object (one draw call) built
+ * from a `BufferGeometry` with both a `position` and a `color` attribute —
+ * the canonical three.js pattern for per-point vertex colors. Each point is
+ * pickable (hover + click) via r3f's Points raycast, which reports the hit
+ * point's index in `event.index`. */
 function PointCloud({
   points,
   onHover,
@@ -68,33 +88,32 @@ function PointCloud({
   onHover: (specimenId: string | null) => void;
   onSelect: (point: GalaxyPoint) => void;
 }) {
-  const meshRef = useRef<THREE.InstancedMesh>(null);
+  const pointsRef = useRef<THREE.Points>(null);
 
-  useEffect(() => {
-    const mesh = meshRef.current;
-    if (!mesh) return;
-    const dummy = new THREE.Object3D();
-    const color = new THREE.Color();
+  const { positions, colors } = useMemo(() => {
+    const positions = new Float32Array(points.length * 3);
+    const colors = new Float32Array(points.length * 3);
+    const c = new THREE.Color();
     points.forEach((p, i) => {
-      dummy.position.set(p.x, p.y, p.z);
-      dummy.updateMatrix();
-      mesh.setMatrixAt(i, dummy.matrix);
-      color.set(p.displayColor);
-      mesh.setColorAt(i, color);
+      positions[i * 3] = p.x;
+      positions[i * 3 + 1] = p.y;
+      positions[i * 3 + 2] = p.z;
+      c.set(p.displayColor);
+      colors[i * 3] = c.r;
+      colors[i * 3 + 1] = c.g;
+      colors[i * 3 + 2] = c.b;
     });
-    mesh.instanceMatrix.needsUpdate = true;
-    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    return { positions, colors };
   }, [points]);
 
   if (points.length === 0) return null;
 
   return (
-    <instancedMesh
-      ref={meshRef}
-      args={[undefined, undefined, points.length]}
+    <points
+      ref={pointsRef}
       onPointerMove={(e: ThreeEvent<PointerEvent>) => {
         e.stopPropagation();
-        onHover(e.instanceId !== undefined ? points[e.instanceId].specimen_id : null);
+        onHover(e.index !== undefined ? points[e.index].specimen_id : null);
       }}
       onPointerOut={(e: ThreeEvent<PointerEvent>) => {
         e.stopPropagation();
@@ -102,12 +121,15 @@ function PointCloud({
       }}
       onClick={(e: ThreeEvent<MouseEvent>) => {
         e.stopPropagation();
-        if (e.instanceId !== undefined) onSelect(points[e.instanceId]);
+        if (e.index !== undefined) onSelect(points[e.index]);
       }}
     >
-      <sphereGeometry args={[0.014, 8, 8]} />
-      <meshBasicMaterial vertexColors toneMapped={false} />
-    </instancedMesh>
+      <bufferGeometry>
+        <bufferAttribute attach="attributes-position" args={[positions, 3]} />
+        <bufferAttribute attach="attributes-color" args={[colors, 3]} />
+      </bufferGeometry>
+      <pointsMaterial vertexColors size={POINT_SIZE} sizeAttenuation toneMapped={false} />
+    </points>
   );
 }
 
@@ -131,6 +153,7 @@ function Galaxy3D({
     >
       <color attach="background" args={["#070b09"]} />
       <ambientLight intensity={1.2} />
+      <RaycasterTuning threshold={POINT_PICK_THRESHOLD} />
       <PointCloud points={points} onHover={onHover} onSelect={onSelect} />
       {hoveredPoint && (
         <Html position={[hoveredPoint.x, hoveredPoint.y, hoveredPoint.z]} center distanceFactor={2.2}>
