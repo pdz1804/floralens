@@ -31,6 +31,22 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "about", label: "About" },
 ];
 
+// Display-only band metadata for the grouped results view + filter chips.
+// Ordered strongest → weakest so sections always read High → Medium → Low.
+type Band = "high" | "medium" | "low";
+const BAND_ORDER: Band[] = ["high", "medium", "low"];
+const BAND_META: Record<Band, { label: string; note: string }> = {
+  high: { label: "High", note: "strong visual matches" },
+  medium: { label: "Medium", note: "plausible — verify the details" },
+  low: { label: "Low", note: "weaker matches, interpret with care" },
+};
+const CHIP_LABEL: Record<"all" | Band, string> = {
+  all: "All",
+  high: "High",
+  medium: "Medium",
+  low: "Low",
+};
+
 export default function Page() {
   const [health, setHealth] = useState<Health | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -158,13 +174,65 @@ export default function Page() {
     results.forEach((r, i) => m.set(r.specimen_id, i + 1));
     return m;
   }, [results]);
-  // De-dupe the per-species blurb: top result carries the summary; individual
-  // cards no longer repeat the identical paragraph (display-only, no logic change).
-  const topMatch = results[0];
-  const distinctSpecies = useMemo(
-    () => new Set(results.map((r) => r.label_name)).size,
-    [results],
+  // Read-only bucketing of results by confidence band, preserving score order.
+  // Powers the grouped "All" view, per-chip counts and the empty-state hint —
+  // derived purely from `results` + `bandFor`, never mutates search state.
+  const groups = useMemo(() => {
+    const g: Record<Band, SearchResult[]> = { high: [], medium: [], low: [] };
+    for (const r of results) g[bandFor(r)].push(r);
+    return g;
+  }, [results]);
+  const counts: Record<Band, number> = {
+    high: groups.high.length,
+    medium: groups.medium.length,
+    low: groups.low.length,
+  };
+  // Bands to render as sections: every non-empty band in "All", else the one
+  // selected band. Empty selection falls through to the band-aware empty state.
+  const visibleBands: Band[] =
+    bandFilter === "all" ? BAND_ORDER.filter((b) => counts[b] > 0) : [bandFilter];
+  const suggestBand = BAND_ORDER.find((b) => counts[b] > 0);
+  // Summary reflects the CURRENT view: top of `shown`, not always results[0].
+  const shownTop = shown[0];
+  const shownDistinct = useMemo(
+    () => new Set(shown.map((r) => r.label_name)).size,
+    [shown],
   );
+
+  // Single source of truth for a result card so grouped sections and the
+  // filtered view stay identical. Display-only — preserves every data-testid.
+  const renderCard = (r: SearchResult) => {
+    const b = bandFor(r);
+    const pct = Math.max(0, Math.round((r.confidence ?? r.score) * 100));
+    return (
+      <article className="result" data-testid="result-card" key={r.specimen_id}>
+        <div className="thumb-wrap">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            className="thumb"
+            data-testid="result-thumb"
+            src={`/api/specimen/${encodeURIComponent(r.specimen_id)}/image`}
+            alt={r.label_name}
+            loading="lazy"
+            onError={(e) => {
+              e.currentTarget.style.visibility = "hidden";
+            }}
+          />
+          <span className="rank">#{rankOf.get(r.specimen_id)} · {r.specimen_id}</span>
+        </div>
+        <div className="meta">
+          <h4 className="name" data-testid="result-name">{r.label_name}</h4>
+          <div className="barwrap">
+            <div className={`bar ${b}`} style={{ width: `${Math.max(3, pct)}%` }} />
+          </div>
+          <div className="scoreline">
+            <span className={`band ${b}`}>{b}</span>
+            <span className="pct" data-testid="result-score">{pct}%</span>
+          </div>
+        </div>
+      </article>
+    );
+  };
 
   return (
     <>
@@ -329,18 +397,28 @@ export default function Page() {
             <div className="body">
               {results.length > 0 && (
                 <div className="filters" data-testid="filters">
-                  {(["all", "high", "medium", "low"] as const).map((b) => (
-                    <button
-                      type="button"
-                      key={b}
-                      className={`chip ${bandFilter === b ? "active" : ""}`}
-                      data-testid={`filter-${b}`}
-                      aria-pressed={bandFilter === b}
-                      onClick={() => setBandFilter(b)}
-                    >
-                      {b}
-                    </button>
-                  ))}
+                  {(["all", "high", "medium", "low"] as const).map((b) => {
+                    const n = b === "all" ? results.length : counts[b];
+                    const disabled = b !== "all" && n === 0;
+                    return (
+                      <button
+                        type="button"
+                        key={b}
+                        className={`chip ${b !== "all" ? `chip-${b}` : ""} ${
+                          bandFilter === b ? "active" : ""
+                        } ${disabled ? "chip-disabled" : ""}`}
+                        data-testid={`filter-${b}`}
+                        aria-pressed={bandFilter === b}
+                        aria-disabled={disabled || undefined}
+                        onClick={() => {
+                          if (!disabled) setBandFilter(b);
+                        }}
+                      >
+                        <span className="chip-label">{CHIP_LABEL[b]}</span>
+                        <span className="chip-count">{n}</span>
+                      </button>
+                    );
+                  })}
                 </div>
               )}
 
@@ -386,12 +464,13 @@ export default function Page() {
                 </div>
               )}
 
-              {phase === "done" && topMatch && (
+              {/* Summary tracks the active filter: top of the CURRENT view. */}
+              {phase === "done" && shownTop && (
                 <div className="top-match" data-testid="top-match">
                   <div className="top-match-thumb" aria-hidden="true">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
-                      src={`/api/specimen/${encodeURIComponent(topMatch.specimen_id)}/image`}
+                      src={`/api/specimen/${encodeURIComponent(shownTop.specimen_id)}/image`}
                       alt=""
                       loading="lazy"
                       onError={(e) => {
@@ -401,58 +480,74 @@ export default function Page() {
                   </div>
                   <div className="top-match-body">
                     <span className="top-match-label">
-                      <SparkleIcon width={13} height={13} aria-hidden="true" /> Top match
+                      <SparkleIcon width={13} height={13} aria-hidden="true" />{" "}
+                      {bandFilter === "all"
+                        ? "Top match"
+                        : `Top ${BAND_META[bandFilter].label.toLowerCase()} match`}
                     </span>
                     <div className="top-match-headline">
-                      <h4 className="top-match-name">{topMatch.label_name}</h4>
-                      <span className={`band ${bandFor(topMatch)}`}>{bandFor(topMatch)}</span>
-                      {distinctSpecies === 1 && results.length > 1 && (
+                      <h4 className="top-match-name">{shownTop.label_name}</h4>
+                      <span className={`band ${bandFor(shownTop)}`}>{bandFor(shownTop)}</span>
+                      {shownDistinct === 1 && shown.length > 1 && (
                         <span className="top-match-count">
-                          all {results.length} matches
+                          all {shown.length} matches
                         </span>
                       )}
                     </div>
-                    {topMatch.description ? (
-                      <ResultDesc text={topMatch.description} />
+                    {shownTop.description ? (
+                      <ResultDesc text={shownTop.description} />
                     ) : null}
                   </div>
                 </div>
               )}
 
-              {shown.length > 0 && (
-                <div className="grid" data-testid="results">
-                  {shown.map((r) => {
-                    const b = bandFor(r);
-                    const pct = Math.max(0, Math.round((r.confidence ?? r.score) * 100));
-                    return (
-                      <article className="result" data-testid="result-card" key={r.specimen_id}>
-                        <div className="thumb-wrap">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img
-                            className="thumb"
-                            data-testid="result-thumb"
-                            src={`/api/specimen/${encodeURIComponent(r.specimen_id)}/image`}
-                            alt={r.label_name}
-                            loading="lazy"
-                            onError={(e) => {
-                              e.currentTarget.style.visibility = "hidden";
-                            }}
-                          />
-                          <span className="rank">#{rankOf.get(r.specimen_id)} · {r.specimen_id}</span>
-                        </div>
-                        <div className="meta">
-                          <h4 className="name" data-testid="result-name">{r.label_name}</h4>
-                          <div className="barwrap">
-                            <div className={`bar ${b}`} style={{ width: `${Math.max(3, pct)}%` }} />
-                          </div>
-                          <div className="scoreline">
-                            <span className={`band ${b}`}>{b}</span>
-                            <span className="pct" data-testid="result-score">{pct}%</span>
-                          </div>
-                        </div>
-                      </article>
-                    );
-                  })}
+              {/* Grouped-by-confidence view: every match visible on one page,
+                  organised High → Medium → Low. In a filtered view only the
+                  selected band's section renders. */}
+              {results.length > 0 && shown.length > 0 && (
+                <div className="results-groups" data-testid="results">
+                  {visibleBands.map((b) =>
+                    counts[b] > 0 ? (
+                      <section
+                        className="band-section"
+                        data-testid={`band-section-${b}`}
+                        key={b}
+                      >
+                        <header className="band-section-head">
+                          <span className={`band-section-title ${b}`}>
+                            <span className="band-dot" aria-hidden="true" />
+                            {BAND_META[b].label}
+                          </span>
+                          <span className={`band-section-count ${b}`}>{counts[b]}</span>
+                          <span className="band-section-note">{BAND_META[b].note}</span>
+                        </header>
+                        <div className="grid">{groups[b].map((r) => renderCard(r))}</div>
+                      </section>
+                    ) : null,
+                  )}
+                </div>
+              )}
+
+              {/* A selected band with no members never leaves a blank grid. */}
+              {results.length > 0 && shown.length === 0 && bandFilter !== "all" && (
+                <div className="state" data-testid="band-empty">
+                  <span className="state-ico" aria-hidden="true">
+                    <SparkleIcon width={26} height={26} />
+                  </span>
+                  <span className="state-title">
+                    No {BAND_META[bandFilter].label.toLowerCase()}-confidence matches
+                  </span>
+                  <p>
+                    No {BAND_META[bandFilter].label.toLowerCase()}-confidence matches for this
+                    photo{suggestBand ? ` — try the ${BAND_META[suggestBand].label} band` : ""}.
+                  </p>
+                  <button
+                    type="button"
+                    className="btn btn-ghost band-empty-cta"
+                    onClick={() => setBandFilter("all")}
+                  >
+                    Show all matches
+                  </button>
                 </div>
               )}
               {results.length > 0 && (

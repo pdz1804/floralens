@@ -1332,3 +1332,93 @@ table.metrics tbody tr:hover { background: var(--panel-2); }
   line-height: 1.45;
   margin-top: 3px;
 }
+
+/* ===========================================================================
+   ADDITIVE v3: filter counts · grouped confidence sections · band-aware empty
+   Display-only layer over the Matches panel. No existing rule changed.
+   =========================================================================== */
+
+/* ---- Filter chips: label + live count, band tint, disabled-empty ---------- */
+.chip { display: inline-flex; align-items: center; gap: 7px; }
+.chip-label { line-height: 1; }
+.chip-count {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  min-width: 20px;
+  padding: 2px 6px;
+  text-align: center;
+  border-radius: var(--pill);
+  background: var(--panel-3);
+  color: var(--muted);
+  transition: color 0.15s var(--ease), background 0.15s var(--ease);
+}
+.chip-high .chip-count { color: var(--high); background: var(--high-soft); }
+.chip-medium .chip-count { color: var(--med); background: var(--med-soft); }
+.chip-low .chip-count { color: var(--low); background: var(--low-soft); }
+/* On the active (filled) chip, the count reads on the primary background. */
+.chip.active .chip-count {
+  color: var(--primary-ink);
+  background: color-mix(in srgb, var(--primary-ink) 22%, transparent);
+}
+/* Empty bands: dimmed and inert, but still announced (aria-disabled in JSX). */
+.chip-disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* ---- Grouped-by-confidence result sections -------------------------------- */
+.results-groups { display: flex; flex-direction: column; gap: 28px; }
+.band-section { scroll-margin-top: 96px; }
+.band-section-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+.band-section-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-serif-stack);
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.band-section-title.high { color: var(--high); }
+.band-section-title.medium { color: var(--med); }
+.band-section-title.low { color: var(--low); }
+.band-section-title .band-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 18%, transparent);
+}
+.band-section-count {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 3px 9px;
+  border-radius: var(--pill);
+}
+.band-section-count.high { color: var(--high); background: var(--high-soft); }
+.band-section-count.medium { color: var(--med); background: var(--med-soft); }
+.band-section-count.low { color: var(--low); background: var(--low-soft); }
+.band-section-note {
+  color: var(--faint);
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+@media (max-width: 460px) {
+  .band-section-note { flex-basis: 100%; }
+}
+
+/* ---- Band-filtered empty state -------------------------------------------- */
+.band-empty-cta { margin-top: 4px; text-transform: none; }
