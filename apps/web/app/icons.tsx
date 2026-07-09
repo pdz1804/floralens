@@ -95,3 +95,119 @@ export function AlertIcon(props: IconProps) {
     </svg>
   );
 }
+
+// Sun — light theme.
+export function SunIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 2.5v2M12 19.5v2M4.6 4.6l1.4 1.4M18 18l1.4 1.4M2.5 12h2M19.5 12h2M4.6 19.4 6 18M18 6l1.4-1.4" />
+    </svg>
+  );
+}
+
+// Moon — dark theme.
+export function MoonIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <path d="M20 14.5A8 8 0 0 1 9.5 4a7 7 0 1 0 10.5 10.5Z" />
+    </svg>
+  );
+}
+
+// Monitor — system (follow OS) theme.
+export function MonitorIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <rect x="3" y="4.5" width="18" height="12" rx="1.6" />
+      <path d="M8.5 20h7M12 16.5V20" />
+    </svg>
+  );
+}
+
+// Stacked disks — the dataset stage.
+export function DatabaseIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <ellipse cx="12" cy="6" rx="7" ry="2.8" />
+      <path d="M5 6v6c0 1.5 3.1 2.8 7 2.8s7-1.3 7-2.8V6" />
+      <path d="M5 12v6c0 1.5 3.1 2.8 7 2.8s7-1.3 7-2.8v-6" />
+    </svg>
+  );
+}
+
+// Stacked layers — the frozen backbone / embedding model.
+export function LayersIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <path d="M12 3.5 21 8l-9 4.5L3 8Z" />
+      <path d="M3 12l9 4.5L21 12" />
+      <path d="M3 16l9 4.5L21 16" />
+    </svg>
+  );
+}
+
+// Grid of cells — the vector index / gallery.
+export function GridIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <rect x="3.5" y="3.5" width="7" height="7" rx="1.4" />
+      <rect x="13.5" y="3.5" width="7" height="7" rx="1.4" />
+      <rect x="3.5" y="13.5" width="7" height="7" rx="1.4" />
+      <rect x="13.5" y="13.5" width="7" height="7" rx="1.4" />
+    </svg>
+  );
+}
+
+// Gauge — calibration.
+export function GaugeIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <path d="M4 16a8 8 0 1 1 16 0" />
+      <path d="M12 16l4-4.5" />
+      <circle cx="12" cy="16" r="1.1" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+// Bar chart — evaluation metrics.
+export function ChartIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <path d="M4 20h16" />
+      <rect x="5.5" y="12" width="3.2" height="6" rx="0.8" />
+      <rect x="10.4" y="8" width="3.2" height="10" rx="0.8" />
+      <rect x="15.3" y="4.5" width="3.2" height="13.5" rx="0.8" />
+    </svg>
+  );
+}
+
+// Wand with a spark — the preprocessing transform.
+export function WandIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <path d="M5 19 16 8" />
+      <path d="M14.5 5.5 18.5 9.5" />
+      <path d="M18 3.5c.2 1 .5 1.3 1.5 1.5-1 .2-1.3.5-1.5 1.5-.2-1-.5-1.3-1.5-1.5 1-.2 1.3-.5 1.5-1.5Z" />
+    </svg>
+  );
+}
+
+// Check in a rounded badge — the promotion decision.
+export function CheckIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="m8.4 12.2 2.4 2.4 4.8-5.2" />
+    </svg>
+  );
+}
+
+// Chevron — expand/collapse affordance.
+export function ChevronIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <path d="m6 9 6 6 6-6" />
+    </svg>
+  );
+}

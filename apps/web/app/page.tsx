@@ -17,8 +17,19 @@ import {
   SearchIcon,
   SparkleIcon,
 } from "./icons";
+import { ThemeToggle } from "./theme-toggle";
+import { ResultDesc } from "./result-desc";
+import { PipelinePage } from "./pipeline-page";
+import { AboutPage } from "./about-page";
 
 type Phase = "idle" | "searching" | "done" | "error";
+type Tab = "search" | "pipeline" | "about";
+
+const TABS: { id: Tab; label: string }[] = [
+  { id: "search", label: "Search" },
+  { id: "pipeline", label: "Pipeline" },
+  { id: "about", label: "About" },
+];
 
 export default function Page() {
   const [health, setHealth] = useState<Health | null>(null);
@@ -31,6 +42,8 @@ export default function Page() {
   const [modelVersion, setModelVersion] = useState<string>("");
   const [bandFilter, setBandFilter] = useState<"all" | "high" | "medium" | "low">("all");
   const [dragging, setDragging] = useState(false);
+  const [tab, setTab] = useState<Tab>("search");
+  const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
   // Guards against a stale search response overwriting results for a newer image.
   const searchSeq = useRef(0);
@@ -122,6 +135,19 @@ export default function Page() {
     }
   }
 
+  // Roving-focus keyboard nav for the tablist (WAI-ARIA tabs pattern).
+  function onTabKey(e: React.KeyboardEvent, i: number) {
+    let next = i;
+    if (e.key === "ArrowRight" || e.key === "ArrowDown") next = (i + 1) % TABS.length;
+    else if (e.key === "ArrowLeft" || e.key === "ArrowUp") next = (i - 1 + TABS.length) % TABS.length;
+    else if (e.key === "Home") next = 0;
+    else if (e.key === "End") next = TABS.length - 1;
+    else return;
+    e.preventDefault();
+    setTab(TABS[next].id);
+    tabRefs.current[next]?.focus();
+  }
+
   const shown = useMemo(
     () => (bandFilter === "all" ? results : results.filter((r) => bandFor(r) === bandFilter)),
     [results, bandFilter],
@@ -145,16 +171,47 @@ export default function Page() {
             <div className="tagline">Visual flower discovery &amp; similarity search</div>
           </div>
         </div>
+        <nav className="tabs" role="tablist" aria-label="Sections">
+          {TABS.map((t, i) => (
+            <button
+              key={t.id}
+              ref={(el) => {
+                tabRefs.current[i] = el;
+              }}
+              type="button"
+              role="tab"
+              id={`tab-${t.id}`}
+              aria-selected={tab === t.id}
+              aria-controls={`panel-${t.id}`}
+              tabIndex={tab === t.id ? 0 : -1}
+              className={`tab ${tab === t.id ? "active" : ""}`}
+              data-testid={`tab-${t.id}`}
+              onClick={() => setTab(t.id)}
+              onKeyDown={(e) => onTabKey(e, i)}
+            >
+              {t.label}
+            </button>
+          ))}
+        </nav>
         <span className="spacer" />
-        <div className="status">
-          <span className={`dot ${health ? "ok" : ""}`} data-testid="health-dot" />
-          <span className="meta" data-testid="health-meta">
-            {health ? `model: ${health.model_version}` : "backend offline"}
-          </span>
+        <div className="topbar-actions">
+          <ThemeToggle />
+          <div className="status">
+            <span className={`dot ${health ? "ok" : ""}`} data-testid="health-dot" />
+            <span className="meta" data-testid="health-meta">
+              {health ? `model: ${health.model_version}` : "backend offline"}
+            </span>
+          </div>
         </div>
       </header>
 
       <main className="wrap">
+        <div
+          role="tabpanel"
+          id="panel-search"
+          aria-labelledby="tab-search"
+          hidden={tab !== "search"}
+        >
         <section className="hero">
           <span className="eyebrow">
             <BloomIcon width={14} height={14} /> Botanical intelligence
@@ -352,6 +409,7 @@ export default function Page() {
                             <span className={`band ${b}`}>{b}</span>
                             <span className="pct" data-testid="result-score">{pct}%</span>
                           </div>
+                          {r.description ? <ResultDesc text={r.description} /> : null}
                         </div>
                       </article>
                     );
@@ -366,6 +424,18 @@ export default function Page() {
             </div>
           </section>
         </div>
+        </div>
+
+        {tab === "pipeline" && (
+          <div role="tabpanel" id="panel-pipeline" aria-labelledby="tab-pipeline">
+            <PipelinePage />
+          </div>
+        )}
+        {tab === "about" && (
+          <div role="tabpanel" id="panel-about" aria-labelledby="tab-about" tabIndex={0}>
+            <AboutPage />
+          </div>
+        )}
       </main>
     </>
   );

@@ -7,10 +7,40 @@ export type SearchResult = {
   score: number; // cosine similarity
   confidence?: number; // calibrated (added in Phase 3b, optional)
   band?: "high" | "medium" | "low";
+  description?: string | null; // curated botanical blurb (display-only, additive)
 };
 
 export type SearchResponse = { model_version: string; results: SearchResult[] };
 export type Health = { status: string; model_version: string };
+
+// ---- Pipeline transparency (GET /api/pipeline) --------------------------------
+// Fields are treated defensively at render time — some keys vary or may be null.
+export type PipelineMetrics = Record<string, number> | null;
+
+export type ReliabilityBin = {
+  bin_lower: number;
+  bin_upper: number;
+  mean_confidence: number;
+  empirical_accuracy: number;
+  count: number;
+};
+
+export type PipelineData = {
+  dataset: { name: string; total: number; classes: number | null; splits: Record<string, number> };
+  preprocessing: { name: string; description: string }[];
+  backbone: { name: string; version: string; dim: number | null; frozen: boolean };
+  eval: { val: PipelineMetrics; test: PipelineMetrics };
+  calibration: { ece_before: number | null; ece_after: number | null; bands: ReliabilityBin[] | null };
+  promotion: { decision: string | null; reason: string | null };
+  model_version: string;
+};
+
+export type PreprocessStep = { name: string; description: string };
+export type PreprocessPreview = {
+  steps: PreprocessStep[];
+  before_png_b64: string;
+  after_png_b64: string;
+};
 
 // Client-side upload ceiling (backend enforces its own limit too).
 export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024; // 10 MB
@@ -27,6 +57,36 @@ export async function searchImage(file: Blob, signal?: AbortSignal): Promise<Sea
   const r = await fetch("/api/search", { method: "POST", body: form, signal });
   if (!r.ok) {
     let detail = `search failed (${r.status})`;
+    try {
+      const j = await r.json();
+      if (j?.detail) detail = typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail);
+    } catch {
+      /* keep default */
+    }
+    throw new Error(detail);
+  }
+  return r.json();
+}
+
+// Read-only snapshot of the ML pipeline (dataset → preprocessing → backbone →
+// index → calibration → eval → promotion). Sourced from on-disk artifacts.
+export async function getPipeline(signal?: AbortSignal): Promise<PipelineData> {
+  const r = await fetch("/api/pipeline", { cache: "no-store", signal });
+  if (!r.ok) throw new Error(`pipeline unavailable (${r.status})`);
+  return r.json();
+}
+
+// Runs the deterministic preprocessing pipeline on an uploaded image and returns
+// before/after PNGs (base64) plus the ordered step list — for the live demo.
+export async function preprocessPreview(
+  file: Blob,
+  signal?: AbortSignal,
+): Promise<PreprocessPreview> {
+  const form = new FormData();
+  form.append("file", file, "query.jpg");
+  const r = await fetch("/api/preprocess-preview", { method: "POST", body: form, signal });
+  if (!r.ok) {
+    let detail = `preview failed (${r.status})`;
     try {
       const j = await r.json();
       if (j?.detail) detail = typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail);
