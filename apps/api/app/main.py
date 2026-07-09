@@ -8,6 +8,10 @@ Endpoints (Phase 0-1 scope):
 Additive (PRD P5-6 — naturalist multi-agent assistant, reusing AgentForge's
 Unified Agent Core, see assistant_service.py):
   POST /api/assistant (SSE) - chat with the naturalist agent team
+
+Additive (PRD Phase 7 — "My Garden" + assistant memory inspector):
+  GET/POST/DELETE /api/garden  - save/list/remove a specimen (garden_service.py)
+  GET/DELETE      /api/memory  - inspect/clear the assistant's memory (memory_service.py)
 """
 from __future__ import annotations
 
@@ -22,9 +26,11 @@ from pydantic import BaseModel, Field
 
 from agent_core.errors import AgentCoreError
 
+from apps.api.app import garden_service, memory_service
 from apps.api.app.assistant_service import build_floralens_registries, compile_naturalist
 from apps.api.app.config import settings
 from apps.api.app.galaxy_service import get_galaxy_points
+from apps.api.app.memory_service import MemoryNotConfiguredError
 from apps.api.app.pipeline_service import build_preprocess_preview, get_pipeline_snapshot
 from apps.api.app.search_service import (
     get_specimen_image_path,
@@ -293,3 +299,92 @@ async def assistant(req: AssistantRequest) -> StreamingResponse:
             "Connection": "keep-alive",
         },
     )
+
+
+# --------------------------------------------------------------------------- #
+# My Garden (PRD Phase 7) — save/list/remove specimens, durable across
+# restarts (see garden_service.py for the SQLite-backed store).
+# --------------------------------------------------------------------------- #
+class GardenAddRequest(BaseModel):
+    specimen_id: str = Field(..., min_length=1, max_length=200)
+
+
+class GardenItemOut(BaseModel):
+    specimen_id: str
+    label_name: str
+    saved_at: str
+
+
+class GardenListResponse(BaseModel):
+    items: list[GardenItemOut]
+
+
+@app.get("/api/garden", response_model=GardenListResponse)
+def list_garden() -> GardenListResponse:
+    items = garden_service.list_specimens()
+    return GardenListResponse(
+        items=[GardenItemOut(specimen_id=i.specimen_id, label_name=i.label_name, saved_at=i.saved_at) for i in items]
+    )
+
+
+@app.post("/api/garden", response_model=GardenItemOut, status_code=201)
+def add_to_garden(req: GardenAddRequest) -> GardenItemOut:
+    label_name = garden_service.resolve_label_name(req.specimen_id)
+    if label_name is None:
+        raise HTTPException(status_code=404, detail=f"unknown specimen_id: {req.specimen_id}")
+    item = garden_service.add_specimen(req.specimen_id, label_name)
+    return GardenItemOut(specimen_id=item.specimen_id, label_name=item.label_name, saved_at=item.saved_at)
+
+
+@app.delete("/api/garden/{specimen_id}", status_code=204, response_model=None)
+def remove_from_garden(specimen_id: str) -> None:
+    if not garden_service.remove_specimen(specimen_id):
+        raise HTTPException(status_code=404, detail="specimen not saved in the garden")
+
+
+# --------------------------------------------------------------------------- #
+# Assistant memory inspector (PRD Phase 7 / Epic E4) — view/clear what the
+# naturalist assistant remembers (memory_service.py; same MemoryProvider
+# instance + scope/namespace the compiled naturalist agent itself uses).
+# --------------------------------------------------------------------------- #
+class MemoryItemOut(BaseModel):
+    id: str | None
+    text: str
+    meta: dict = Field(default_factory=dict)
+
+
+class MemoryListResponse(BaseModel):
+    items: list[MemoryItemOut]
+    scope: str
+    namespace: str
+
+
+class MemoryDeleteResponse(BaseModel):
+    deleted: int
+
+
+def _memory_unavailable(exc: MemoryNotConfiguredError) -> HTTPException:
+    return HTTPException(status_code=503, detail=str(exc))
+
+
+@app.get("/api/memory", response_model=MemoryListResponse)
+async def list_memory() -> MemoryListResponse:
+    try:
+        items = await memory_service.list_memories(assistant_registries)
+        scope, namespace = memory_service.memory_scope_and_namespace()
+    except MemoryNotConfiguredError as exc:
+        raise _memory_unavailable(exc) from exc
+    return MemoryListResponse(
+        items=[MemoryItemOut(id=i["id"], text=i["text"], meta=i["meta"]) for i in items],
+        scope=scope,
+        namespace=namespace,
+    )
+
+
+@app.delete("/api/memory", response_model=MemoryDeleteResponse)
+async def clear_memory() -> MemoryDeleteResponse:
+    try:
+        deleted = await memory_service.clear_memories(assistant_registries)
+    except MemoryNotConfiguredError as exc:
+        raise _memory_unavailable(exc) from exc
+    return MemoryDeleteResponse(deleted=deleted)

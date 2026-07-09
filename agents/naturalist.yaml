@@ -12,6 +12,17 @@ model:
 prompt_ref: prompts/naturalist.md
 tools:
   - web_search
+# Phase 7 (PRD §9 example, Epic E2/E4): long-term memory so the assistant
+# recalls prior turns ("what the user said, what it answered") across
+# threads, and so /api/garden's "My Garden" memory inspector has a real
+# store to list/clear — apps/api/app/memory_service.py reads this exact
+# provider/scope/namespace, never a second disconnected store. `in_memory`
+# is the default backend (process-local, no external deps); swap to `mem0`
+# here for semantic, persistent memory — no core or app code change needed.
+memory:
+  provider: in_memory
+  scope: user
+  namespace: floralens
 sub_agents:
   - care_advisor
 limits:

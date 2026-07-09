@@ -61,3 +61,10 @@ transformers==5.13.0
 # changes; drop this pin if/when agent-core's own dependencies cover it.
 aiosqlite==0.22.1
 langgraph-checkpoint-sqlite==3.1.0
+# agent_core.observability (imported unconditionally by agent_core's
+# top-level __init__) declares asyncpg as a real dependency in its own
+# pyproject.toml, but an existing editable install predating that addition
+# can be missing it — `import agent_core` then fails with
+# `ModuleNotFoundError: asyncpg` even though FloraLens never touches
+# PostgresRunStore. Pinned here for the same reason as aiosqlite above.
+asyncpg==0.31.0

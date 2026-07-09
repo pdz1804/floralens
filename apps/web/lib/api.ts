@@ -204,3 +204,56 @@ export function extractCitations(text: string): string[] {
   const cleaned = matches.map((u) => u.replace(/[).,;:]+$/, ""));
   return [...new Set(cleaned)];
 }
+
+// ---- My Garden (GET/POST/DELETE /api/garden) — PRD Phase 7 ------------------
+export type GardenItem = { specimen_id: string; label_name: string; saved_at: string };
+export type GardenListResponse = { items: GardenItem[] };
+
+async function readErrorDetail(r: Response, fallback: string): Promise<string> {
+  try {
+    const j = await r.json();
+    if (j?.detail) return typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail);
+  } catch {
+    /* keep fallback */
+  }
+  return fallback;
+}
+
+export async function getGarden(signal?: AbortSignal): Promise<GardenListResponse> {
+  const r = await fetch("/api/garden", { cache: "no-store", signal });
+  if (!r.ok) throw new Error(await readErrorDetail(r, `garden unavailable (${r.status})`));
+  return r.json();
+}
+
+export async function addToGarden(specimenId: string, signal?: AbortSignal): Promise<GardenItem> {
+  const r = await fetch("/api/garden", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ specimen_id: specimenId }),
+    signal,
+  });
+  if (!r.ok) throw new Error(await readErrorDetail(r, `could not save to garden (${r.status})`));
+  return r.json();
+}
+
+export async function removeFromGarden(specimenId: string, signal?: AbortSignal): Promise<void> {
+  const r = await fetch(`/api/garden/${encodeURIComponent(specimenId)}`, { method: "DELETE", signal });
+  if (!r.ok) throw new Error(await readErrorDetail(r, `could not remove from garden (${r.status})`));
+}
+
+// ---- Assistant memory inspector (GET/DELETE /api/memory) — PRD Phase 7 ------
+export type MemoryItem = { id: string | null; text: string; meta: Record<string, unknown> };
+export type MemoryListResponse = { items: MemoryItem[]; scope: string; namespace: string };
+export type MemoryClearResponse = { deleted: number };
+
+export async function getMemory(signal?: AbortSignal): Promise<MemoryListResponse> {
+  const r = await fetch("/api/memory", { cache: "no-store", signal });
+  if (!r.ok) throw new Error(await readErrorDetail(r, `memory unavailable (${r.status})`));
+  return r.json();
+}
+
+export async function clearMemory(signal?: AbortSignal): Promise<MemoryClearResponse> {
+  const r = await fetch("/api/memory", { method: "DELETE", signal });
+  if (!r.ok) throw new Error(await readErrorDetail(r, `could not clear memory (${r.status})`));
+  return r.json();
+}

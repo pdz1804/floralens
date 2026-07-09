@@ -12,3 +12,7 @@ ml/data/raw/open_clip_cache/
 # Keep manifests and eval reports — they ARE the reproducibility record.
 !ml/data/manifests/
 !ml/eval/reports/
+
+# My Garden's local SQLite store (runtime state, not source; see
+# apps/api/app/garden_service.py / GARDEN_DB_PATH).
+apps/api/data/

@@ -22,16 +22,18 @@ import { ResultDesc } from "./result-desc";
 import { PipelinePage } from "./pipeline-page";
 import { GalaxyPage } from "./galaxy-page";
 import { AssistantPage } from "./assistant-page";
+import { GardenPage } from "./garden-page";
 import { AboutPage } from "./about-page";
 
 type Phase = "idle" | "searching" | "done" | "error";
-type Tab = "search" | "pipeline" | "galaxy" | "assistant" | "about";
+type Tab = "search" | "pipeline" | "galaxy" | "assistant" | "garden" | "about";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "search", label: "Search" },
   { id: "pipeline", label: "Pipeline" },
   { id: "galaxy", label: "Galaxy" },
   { id: "assistant", label: "Assistant" },
+  { id: "garden", label: "Garden" },
   { id: "about", label: "About" },
 ];
 
@@ -577,6 +579,11 @@ export default function Page() {
         {tab === "assistant" && (
           <div role="tabpanel" id="panel-assistant" aria-labelledby="tab-assistant">
             <AssistantPage />
+          </div>
+        )}
+        {tab === "garden" && (
+          <div role="tabpanel" id="panel-garden" aria-labelledby="tab-garden">
+            <GardenPage />
           </div>
         )}
         {tab === "about" && (
