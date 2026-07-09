@@ -203,6 +203,16 @@ export function CheckIcon(props: IconProps) {
   );
 }
 
+// Paper plane — the assistant chat's send action.
+export function SendIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <path d="M20 4 3.5 10.8c-.9.4-.8 1.7.1 1.9l6 1.7 1.7 6c.3.9 1.6 1 1.9.1L20 4Z" />
+      <path d="M11 13.5 20 4" />
+    </svg>
+  );
+}
+
 // Chevron — expand/collapse affordance.
 export function ChevronIcon(props: IconProps) {
   return (

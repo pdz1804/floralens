@@ -1509,6 +1509,112 @@ table.metrics tbody tr:hover { background: var(--panel-2); }
   pointer-events: none;
 }
 
+/* ============================================================================
+   Naturalist assistant (PRD P5-6) — chat UI over POST /api/assistant (SSE)
+   ============================================================================ */
+.assistant { max-width: 860px; }
+.assistant-hero { max-width: 640px; margin-bottom: 26px; }
+.assistant-hero h2 { font-size: clamp(26px, 4vw, 38px); line-height: 1.1; margin: 0 0 12px; }
+.assistant-hero p { color: var(--muted); margin: 0; max-width: 62ch; }
+
+.assistant-layout {
+  display: flex;
+  flex-direction: column;
+  height: min(640px, 70vh);
+  padding: 0;
+  overflow: hidden;
+}
+
+.assistant-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.assistant-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  margin-top: 10px;
+}
+.assistant-suggestion { font-size: 13px; padding: 7px 14px; }
+
+.assistant-msg { display: flex; flex-direction: column; gap: 4px; max-width: 90%; }
+.assistant-msg-user { align-self: flex-end; align-items: flex-end; }
+.assistant-msg-assistant { align-self: flex-start; align-items: flex-start; }
+
+.assistant-msg-role {
+  font-size: 11.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--faint);
+}
+
+.assistant-answer {
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: var(--r);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  font-size: 14.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+.assistant-msg-user .assistant-answer { background: var(--primary-soft); border-color: var(--primary-soft); }
+.assistant-answer-error { color: var(--low); background: var(--low-soft); border-color: var(--low-soft); }
+
+.assistant-citations {
+  list-style: none;
+  margin: 2px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.assistant-citations a {
+  font-size: 12.5px;
+  color: var(--primary);
+  word-break: break-all;
+}
+
+.assistant-thinking {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: var(--r);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--faint);
+  font-size: 13.5px;
+}
+
+.assistant-composer {
+  display: flex;
+  gap: 10px;
+  padding: 14px 20px;
+  border-top: 1px solid var(--line);
+  background: var(--panel);
+}
+.assistant-composer input {
+  flex: 1;
+  padding: 10px 14px;
+  border-radius: var(--pill);
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--ink);
+  font-size: 14px;
+}
+.assistant-composer input:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+.assistant-composer .btn-primary { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.assistant-error { margin: 0 20px 16px; }
+
 .galaxy-2d-fallback {
   border: 1px solid var(--line);
   border-radius: var(--r-lg);

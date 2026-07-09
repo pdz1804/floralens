@@ -4,17 +4,25 @@ Endpoints (Phase 0-1 scope):
   GET  /health            - liveness + active model_version
   GET  /api/health        - alias, same payload (matches PRD API surface prefix)
   POST /api/search        - image (multipart file OR JSON base64) -> top-K matches
+
+Additive (PRD P5-6 — naturalist multi-agent assistant, reusing AgentForge's
+Unified Agent Core, see assistant_service.py):
+  POST /api/assistant (SSE) - chat with the naturalist agent team
 """
 from __future__ import annotations
 
 import base64
 import binascii
+import json
 import logging
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
+from agent_core.errors import AgentCoreError
+
+from apps.api.app.assistant_service import build_floralens_registries, compile_naturalist
 from apps.api.app.config import settings
 from apps.api.app.galaxy_service import get_galaxy_points
 from apps.api.app.pipeline_service import build_preprocess_preview, get_pipeline_snapshot
@@ -28,6 +36,11 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="FloraLens API", version="0.1.0")
+
+# Built once at startup; tests may swap in a fake model provider via
+# `assistant_registries.models.register(..., overwrite=True)` to run the
+# naturalist agent offline (no API key / network spend).
+assistant_registries = build_floralens_registries()
 
 _ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp", "image/bmp"}
 
@@ -222,4 +235,61 @@ def specimen_image(specimen_id: str) -> FileResponse:
         raise HTTPException(status_code=404, detail="specimen image not found")
     return FileResponse(
         path, media_type="image/jpeg", headers={"Cache-Control": "public, max-age=3600"}
+    )
+
+
+class AssistantRequest(BaseModel):
+    message: str = Field(..., min_length=1, max_length=4000)
+    thread_id: str = "default"
+
+
+def _assistant_error_event(detail: str) -> str:
+    return f"data: {json.dumps({'type': 'error', 'detail': detail})}\n\n"
+
+
+@app.post("/api/assistant")
+async def assistant(req: AssistantRequest) -> StreamingResponse:
+    """Chat with the naturalist agent team, streaming trace + answer as SSE.
+
+    Compiles the `naturalist` manifest (agents/naturalist.yaml, delegating to
+    the `care_advisor` sub-agent) via the shared `agent_core.compile_agent` —
+    the exact same compile/stream path AgentForge's own `/api/runs` uses (see
+    assistant_service.py). Mirrors that endpoint's SSE contract: a
+    `run_started` event, one event per trace step, then `done` (or a
+    structured `error` event on failure, never a broken stream).
+    """
+
+    async def event_stream():
+        yield f"data: {json.dumps({'type': 'run_started'})}\n\n"
+        try:
+            agent = compile_naturalist(assistant_registries)
+        except AgentCoreError as exc:
+            yield _assistant_error_event(str(exc))
+            return
+        except Exception:
+            logger.exception("failed to compile the naturalist agent")
+            yield _assistant_error_event("failed to prepare the naturalist assistant")
+            return
+
+        try:
+            async for event in agent.astream(req.message, thread_id=req.thread_id):
+                yield f"data: {event.model_dump_json()}\n\n"
+        except AgentCoreError as exc:
+            yield _assistant_error_event(str(exc))
+            return
+        except Exception:
+            logger.exception("naturalist assistant run failed")
+            yield _assistant_error_event("internal error during assistant run")
+            return
+
+        yield f"data: {json.dumps({'type': 'done'})}\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
     )

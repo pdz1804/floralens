@@ -134,3 +134,73 @@ export function bandFor(r: SearchResult): "high" | "medium" | "low" {
   if (v >= 0.7) return "medium";
   return "low";
 }
+
+// ---- Naturalist assistant (POST /api/assistant, SSE) --------------------------
+// Reuses AgentForge's Unified Agent Core (agent_core) — see
+// apps/api/app/assistant_service.py. One line per Server-Sent Event; each
+// decodes to a trace step ("model" | "tool" | "answer" | "limit") or a
+// top-level "run_started" | "error" | "done" marker.
+export type AssistantEvent = {
+  type: string;
+  step?: number;
+  node?: string;
+  detail?: string;
+  usage?: Record<string, number>;
+};
+
+// Streams one assistant turn, invoking `onEvent` per SSE `data:` line as it
+// arrives. Resolves once the stream ends (on `done`, `error`, or the response
+// closing) — callers drive UI state from `onEvent`, not the return value.
+export async function streamAssistant(
+  message: string,
+  threadId: string | undefined,
+  onEvent: (event: AssistantEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const r = await fetch("/api/assistant", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(threadId ? { message, thread_id: threadId } : { message }),
+    signal,
+  });
+  if (!r.ok || !r.body) {
+    let detail = `assistant request failed (${r.status})`;
+    try {
+      const j = await r.json();
+      if (j?.detail) detail = typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail);
+    } catch {
+      /* keep default */
+    }
+    throw new Error(detail);
+  }
+
+  const reader = r.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const chunks = buffer.split("\n\n");
+    buffer = chunks.pop() ?? "";
+    for (const chunk of chunks) {
+      const line = chunk.trim();
+      if (!line.startsWith("data:")) continue;
+      const payload = line.slice("data:".length).trim();
+      if (!payload) continue;
+      try {
+        onEvent(JSON.parse(payload) as AssistantEvent);
+      } catch {
+        /* skip a malformed SSE line rather than aborting the whole stream */
+      }
+    }
+  }
+}
+
+// Extracts unique http(s) URLs from an assistant answer, trimming trailing
+// punctuation — powers the "cited sources" list under an answer bubble.
+export function extractCitations(text: string): string[] {
+  const matches = text.match(/https?:\/\/[^\s)]+/g) ?? [];
+  const cleaned = matches.map((u) => u.replace(/[).,;:]+$/, ""));
+  return [...new Set(cleaned)];
+}

@@ -1,0 +1,17 @@
+# FloraLens care-advisor sub-agent — delegated to by `naturalist` (see
+# naturalist.yaml's sub_agents) for questions about what the FloraLens
+# gallery itself holds for a given species. Uses only the FloraLens-specific
+# `gallery_facts` tool (apps/api/app/assistant_service.py), which reads the
+# gallery's embeddings-cache metadata and curated descriptions read-only.
+id: care_advisor
+version: 1
+model:
+  provider: openai
+  name: gpt-4o-mini
+  temperature: 0.2
+prompt_ref: prompts/care_advisor.md
+tools:
+  - gallery_facts
+limits:
+  max_steps: 4
+  wall_clock_s: 30

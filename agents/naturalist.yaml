@@ -1,0 +1,19 @@
+# FloraLens naturalist supervisor (PRD P5-6 §9) — compiled by the shared
+# AgentForge Unified Agent Core (agent_core.compile_agent). Answers flower
+# identification / general botanical questions via `web_search` (citing
+# sources) and delegates gallery-specific questions to the `care_advisor`
+# sub-agent (agents-as-tools, exposed to this manifest as `ask_care_advisor`).
+id: naturalist
+version: 1
+model:
+  provider: openai
+  name: gpt-4o-mini
+  temperature: 0.2
+prompt_ref: prompts/naturalist.md
+tools:
+  - web_search
+sub_agents:
+  - care_advisor
+limits:
+  max_steps: 6
+  wall_clock_s: 60

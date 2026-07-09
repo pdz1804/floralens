@@ -39,3 +39,25 @@ transformers==5.13.0
 # torch==2.7.1
 # torchvision==0.22.1
 # open-clip-torch==2.31.0
+
+# --- Naturalist assistant (PRD P5-6 / US-6 cross-product reuse) -------------
+# Reuses AgentForge's Unified Agent Core instead of forking a second agent
+# harness: same manifest schema, registries, LangGraph ReAct runtime and
+# OpenAI/Echo model providers that power AgentForge itself
+# (apps/api/app/assistant_service.py imports `agent_core` unmodified). The
+# package lives in the sibling agentforge repo and is installed editable, as
+# a path dependency, so both repos share one source of truth:
+#   pip install -e ../agentforge/packages/agent-core[openai]
+# (relative to this repo's root; adjust the path if agentforge is checked out
+# elsewhere). Verified working in this environment: `python -c "import
+# agent_core"` resolves to agentforge/packages/agent-core/src/agent_core.
+-e ../agentforge/packages/agent-core[openai]
+# Runtime deps for agent_core's optional durable-checkpointer module
+# (agent_core/checkpoint.py, unused by FloraLens today) that agent-core's own
+# pyproject.toml does not declare — importing `agent_core` fails with
+# `ModuleNotFoundError: aiosqlite` without them, even though nothing in
+# FloraLens sets AGENTFORGE_CHECKPOINT_DB. Pinned here so the editable
+# cross-repo install above stays importable regardless of upstream agentforge
+# changes; drop this pin if/when agent-core's own dependencies cover it.
+aiosqlite==0.22.1
+langgraph-checkpoint-sqlite==3.1.0
