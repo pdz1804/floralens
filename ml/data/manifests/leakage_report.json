@@ -1,0 +1,18 @@
+{
+  "split_sizes": {
+    "train": 4917,
+    "val": 818,
+    "test": 818,
+    "gallery": 1632
+  },
+  "class_coverage_per_split": {
+    "train": 102,
+    "val": 102,
+    "test": 102,
+    "gallery": 102
+  },
+  "id_overlaps": {},
+  "content_hash_overlaps": {},
+  "duplicate_group_overlaps": {},
+  "is_leakage_free": true
+}

@@ -1,0 +1,14 @@
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.env
+
+# Large/generated ML artifacts — reproducible from ml/scripts/*.py, not committed.
+ml/data/raw/
+ml/data/embeddings_cache/
+ml/data/raw/open_clip_cache/
+
+# Keep manifests and eval reports — they ARE the reproducibility record.
+!ml/data/manifests/
+!ml/eval/reports/

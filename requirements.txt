@@ -1,0 +1,19 @@
+# FloraLens backend + ML dependencies.
+# Torch is CPU-only by design (see PRD/IMPLEMENTATION-PLAN: backbone is frozen,
+# no GPU needed for embedding/eval work in Phase 0-1).
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.5
+python-multipart==0.0.20
+pytest==8.3.4
+numpy==1.26.4
+pillow==11.1.0
+scikit-learn==1.6.1
+imagehash==4.3.1
+requests==2.32.3
+datasets==5.0.0
+
+# Installed separately with the CPU wheel index (see README setup steps):
+# torch==2.7.1
+# torchvision==0.22.1
+# open-clip-torch==2.31.0

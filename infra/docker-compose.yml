@@ -1,0 +1,18 @@
+# Infra stub for later phases (Postgres/pgvector, MinIO, MLflow — PRD §13, IMPLEMENTATION-PLAN Phase 0).
+# Phase 0-1 deliberately does NOT depend on this: the vector index is
+# in-memory (ml/index/vector_store.py) and there is no persistence layer
+# yet. Uncomment/extend when Phase 2+ needs real storage.
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: floralens
+      POSTGRES_PASSWORD: floralens
+      POSTGRES_DB: floralens
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
