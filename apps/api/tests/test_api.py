@@ -148,6 +148,34 @@ def test_preprocess_preview_rejects_missing_file():
     assert resp.status_code == 422  # FastAPI validation: required 'file' field missing
 
 
+def test_search_rejects_decompression_bomb():
+    # A tiny uniform PNG that decodes to >40MP must be rejected before load(),
+    # not allowed to allocate hundreds of MB (OOM DoS).
+    from apps.api.app import search_service
+
+    search_service.reset_gallery_store_cache()
+    bomb = Image.new("RGB", (7000, 7000), (10, 20, 30))  # 49MP, compresses tiny
+    buf = io.BytesIO()
+    bomb.save(buf, format="PNG")
+    resp = client.post(
+        "/api/search", files={"file": ("bomb.png", io.BytesIO(buf.getvalue()), "image/png")}
+    )
+    assert resp.status_code == 400
+
+
+@pytest.mark.skipif(not EMBEDDINGS_CACHE.exists(), reason="embeddings cache not built yet")
+def test_gallery_store_rejects_backbone_mismatch(monkeypatch):
+    # If the active backbone differs from the one the gallery was embedded with,
+    # the store build must fail loud (same-dim swap would silently corrupt search).
+    from apps.api.app import search_service
+
+    search_service.reset_gallery_store_cache()
+    monkeypatch.setattr(search_service, "backbone_name", lambda: "some_other_backbone")
+    with pytest.raises(RuntimeError, match="backbone mismatch"):
+        search_service.get_gallery_store()
+    search_service.reset_gallery_store_cache()
+
+
 def test_pipeline_snapshot_returns_required_keys():
     resp = client.get("/api/pipeline")
     assert resp.status_code == 200

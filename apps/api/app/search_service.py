@@ -15,7 +15,7 @@ from PIL import Image
 
 from apps.api.app.config import settings
 from ml.descriptions.loader import get_description
-from ml.embeddings.backbone import embed_image
+from ml.embeddings.backbone import backbone_name, embed_image
 from ml.embeddings.cache import load_embeddings
 from ml.eval.calibration import confidence_band
 from ml.index.vector_store import VectorStore
@@ -94,6 +94,22 @@ def get_gallery_store() -> VectorStore:
     indexing so query-time and index-time embeddings live in the same space.
     """
     vectors, metadata = load_embeddings(settings.embeddings_cache_dir)
+
+    # Fail loud on a backbone mismatch: the gallery was embedded with one
+    # backbone (recorded in the cache), but the live process may resolve a
+    # different one via the fallback chain (e.g. DINOv3 becomes reachable after
+    # an HF token is added — same 1024-d as DINOv2, so cosine would NOT crash
+    # and would silently return garbage across two embedding spaces). Refuse to
+    # serve rather than corrupt results.
+    cached_backbone = metadata.get("backbone")
+    active_backbone = backbone_name()
+    if cached_backbone and cached_backbone != active_backbone:
+        raise RuntimeError(
+            f"backbone mismatch: gallery embedded with '{cached_backbone}' but the "
+            f"active backbone is '{active_backbone}'. Re-run the embedding pipeline "
+            f"(python -m ml.scripts.build_embeddings_index) so query and index share one space."
+        )
+
     candidate = _load_candidate(settings.model_version)
     model_version = settings.model_version if candidate else metadata.get("model_version", "baseline")
 
@@ -169,13 +185,25 @@ def get_specimen_image_path(specimen_id: str) -> Path | None:
     return path
 
 
+# Reject images whose *decoded* pixel count is absurd, before allocating them.
+# A <10MB upload can decode to hundreds of MB (a uniform-color PNG) — a
+# decompression-bomb OOM under concurrency. 40 MP covers any real photo.
+_MAX_DECODE_PIXELS = 40_000_000
+# Also cap PIL's own bomb guard so it errors (not just warns) well below that.
+Image.MAX_IMAGE_PIXELS = _MAX_DECODE_PIXELS
+
+
 def decode_image_bytes(image_bytes: bytes) -> Image.Image:
     """Decode raw uploaded bytes into a PIL image, no preprocessing applied.
 
     Used where the *original* (pre-preprocessing) image is needed, e.g. the
-    "before" side of `/api/preprocess-preview`.
+    "before" side of `/api/preprocess-preview`. Rejects decompression bombs by
+    checking the declared dimensions before decoding the pixels.
     """
     with Image.open(io.BytesIO(image_bytes)) as img:
+        w, h = img.size  # available without decoding pixels
+        if w * h > _MAX_DECODE_PIXELS:
+            raise ValueError(f"image too large to decode: {w}x{h} exceeds {_MAX_DECODE_PIXELS}px")
         img.load()
         return img.convert("RGB") if img.mode != "RGB" else img.copy()
 

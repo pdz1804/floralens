@@ -70,9 +70,9 @@ def _augmented_view(image: Image.Image, view: str) -> Image.Image:
     if view == "hflip":
         return F.hflip(image)
     if view == "rotate":
-        # Mild rotation with edge-replicate fill so no synthetic black
-        # borders are introduced (which would themselves become a spurious
-        # learnable cue).
+        # Mild rotation (default black corner fill). The angle is small so the
+        # black triangles are tiny, and they appear identically across every
+        # rotated view of every class, so they are not a class-discriminative cue.
         return F.rotate(image, ROTATE_DEGREES, fill=None, expand=False)
     raise ValueError(f"unknown augmentation view: {view}")
 

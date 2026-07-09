@@ -12,6 +12,25 @@ def _solid_image(size: tuple[int, int], color: tuple[int, int, int]) -> Image.Im
     return Image.new("RGB", size, color=color)
 
 
+def test_extreme_aspect_does_not_collapse():
+    # A 1x1000 strip must not collapse to a ~1x1 image (content destroyed);
+    # the extreme-aspect pad keeps it a usable square.
+    out, steps = preprocess(Image.new("RGB", (1, 1000), (200, 30, 30)))
+    assert min(out.size) >= 64  # not degenerate
+    assert out.size[0] == out.size[1]  # square
+    assert any(s["name"] == "pad_extreme_aspect" for s in steps)
+
+
+def test_normal_aspect_keeps_standard_steps():
+    # A normal photo must NOT trigger the extreme-aspect pad — gallery images
+    # (all normal aspect) keep the exact same transform / embedding space.
+    _, steps = preprocess(Image.new("RGB", (400, 300), (120, 140, 90)))
+    names = [s["name"] for s in steps]
+    assert "pad_extreme_aspect" not in names
+    assert names == ["exif_autoorient", "convert_rgb", "resize", "center_crop",
+                     "white_balance", "clahe"]
+
+
 def _color_cast_image(size: tuple[int, int] = (120, 90)) -> Image.Image:
     rng = np.random.default_rng(7)
     base = rng.integers(80, 180, size=(size[1], size[0], 3), dtype=np.uint8).astype(np.int16)

@@ -66,6 +66,22 @@ def _resize_longest_side(image: Image.Image, target_size: int) -> Image.Image:
     return image.resize(new_size, Image.LANCZOS)
 
 
+# Above this width:height (or height:width) ratio, a longest-side resize +
+# center crop would discard almost all content (a 1x1000 strip collapses to
+# ~1x1). Real photos never reach this; only pathological inputs do.
+_EXTREME_ASPECT = 4.0
+
+
+def _pad_to_square(image: Image.Image) -> Image.Image:
+    """Center the image on a black square canvas (max side) so a later square
+    crop keeps its content instead of collapsing an extreme-aspect strip."""
+    width, height = image.size
+    side = max(width, height)
+    canvas = Image.new("RGB", (side, side), (0, 0, 0))
+    canvas.paste(image, ((side - width) // 2, (side - height) // 2))
+    return canvas
+
+
 def _center_square_crop(image: Image.Image) -> Image.Image:
     width, height = image.size
     side = min(width, height)
@@ -137,6 +153,18 @@ def preprocess(
     steps.append(
         PreprocessStep("convert_rgb", "Converted the image to standard 3-channel RGB color.")
     )
+
+    # Only pathological aspect ratios hit this — normal photos are untouched, so
+    # gallery embeddings (all normal-aspect) keep the exact same transform.
+    w, h = img.size
+    if max(w, h) / max(1, min(w, h)) > _EXTREME_ASPECT:
+        img = _pad_to_square(img)
+        steps.append(
+            PreprocessStep(
+                "pad_extreme_aspect",
+                "Padded an extreme-aspect image to a square so the crop keeps its subject.",
+            )
+        )
 
     img = _resize_longest_side(img, target_size)
     steps.append(

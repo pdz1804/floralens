@@ -88,9 +88,25 @@ class _Dinov2Backbone:
     embedding_dim = 1024
 
     def __init__(self) -> None:
+        import os
+
         from torchvision import transforms
 
-        self.model = torch.hub.load(_DINOV2_HUB_REPO, _DINOV2_HUB_MODEL, trust_repo=True)
+        # Load from the LOCAL torch.hub cache when present — `torch.hub.load`
+        # otherwise makes a GitHub round-trip to validate the repo ref on every
+        # load, and a transient network error there (e.g. HTTP 504) would
+        # silently drop us to a weaker backbone whose vectors don't match the
+        # DINOv2-embedded gallery. Weights come from the (cached) checkpoint,
+        # so once downloaded this is fully offline.
+        cache_dir = os.path.join(torch.hub.get_dir(), "facebookresearch_dinov2_main")
+        if os.path.isdir(cache_dir):
+            self.model = torch.hub.load(
+                cache_dir, _DINOV2_HUB_MODEL, source="local", trust_repo=True
+            )
+        else:
+            self.model = torch.hub.load(
+                _DINOV2_HUB_REPO, _DINOV2_HUB_MODEL, trust_repo=True, skip_validation=True
+            )
         self.model.eval()
         # Standard DINOv2 eval-time preprocessing (matches the reference repo):
         # resize short-side-preserving to 256 via bicubic, center-crop 224,
