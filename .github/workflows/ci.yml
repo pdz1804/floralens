@@ -23,7 +23,26 @@ jobs:
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          # `pip install -r requirements.txt` as a single resolver pass is
+          # impossible: datasets==5.0.0 requires pyarrow>=21, mlflow==2.19.0
+          # requires pyarrow<19 (verified locally -- pip's resolver rejects
+          # the combined install outright with ResolutionImpossible). Neither
+          # tests/ nor apps/api/ import `datasets` or `mlflow` at collection
+          # time (datasets is only imported lazily inside
+          # ml/data/dataset.py's HF-ingestion function, used solely by
+          # ml/scripts/build_splits.py; mlflow is only imported by
+          # ml/scripts/*.py entry points) -- so installing everything else
+          # first and mlflow last (letting pip downgrade pyarrow afterwards)
+          # gives every package the test suite actually imports a working
+          # install, matching what is already installed in this project's own
+          # (gitignored) dev venv/. `import datasets` itself would then raise
+          # (pyarrow 18.x lacks an attribute datasets 5.0.0 needs), but no
+          # test exercises that import, so it does not affect this gate.
+          pip install fastapi==0.115.6 "uvicorn[standard]==0.34.0" pydantic==2.10.5 \
+            python-multipart==0.0.20 pytest==8.3.4 numpy==1.26.4 pillow==11.1.0 \
+            scikit-learn==1.6.1 imagehash==4.3.1 requests==2.32.3 datasets==5.0.0 \
+            opencv-python-headless==4.10.0.84 transformers==5.13.0
+          pip install mlflow==2.19.0
           # torch/torchvision/open-clip-torch are installed separately (see
           # README "Setup"), not pinned in requirements.txt, because the dev
           # environment chooses a CUDA or CPU wheel depending on local GPU
