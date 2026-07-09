@@ -12,6 +12,13 @@ Unified Agent Core, see assistant_service.py):
 Additive (PRD Phase 7 — "My Garden" + assistant memory inspector):
   GET/POST/DELETE /api/garden  - save/list/remove a specimen (garden_service.py)
   GET/DELETE      /api/memory  - inspect/clear the assistant's memory (memory_service.py)
+
+Additive (PRD Phase 9 — opt-in hardening; see auth.py, rate_limit.py,
+redaction.py): sensitive/mutating endpoints (assistant, garden, memory) sit
+behind `require_api_key`, a no-op unless `FLORALENS_API_KEY` is set, so the
+local demo and existing tests are unaffected by default. `/api/search` and
+`/api/assistant` are additionally per-IP rate limited, and secrets are
+redacted from the assistant trace/error stream and from all log output.
 """
 from __future__ import annotations
 
@@ -20,7 +27,7 @@ import binascii
 import json
 import logging
 
-from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -28,10 +35,13 @@ from agent_core.errors import AgentCoreError
 
 from apps.api.app import garden_service, memory_service
 from apps.api.app.assistant_service import build_floralens_registries, compile_naturalist
+from apps.api.app.auth import require_api_key
 from apps.api.app.config import settings
 from apps.api.app.galaxy_service import get_galaxy_points
 from apps.api.app.memory_service import MemoryNotConfiguredError
 from apps.api.app.pipeline_service import build_preprocess_preview, get_pipeline_snapshot
+from apps.api.app.rate_limit import assistant_rate_limit, search_rate_limit
+from apps.api.app.redaction import RedactingLogFilter, redact_secrets
 from apps.api.app.search_service import (
     get_specimen_image_path,
     search_image,
@@ -40,6 +50,9 @@ from apps.api.app.search_service import (
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+# Scrubs secrets (API keys, bearer tokens, ...) from every log record
+# process-wide, in case one ends up in an exception message (PRD Phase 9).
+logging.getLogger().addFilter(RedactingLogFilter())
 
 app = FastAPI(title="FloraLens API", version="0.1.0")
 
@@ -105,7 +118,7 @@ def _validate_and_decode_bytes(raw: bytes, declared_content_type: str | None) ->
     return raw
 
 
-@app.post("/api/search", response_model=SearchResponse)
+@app.post("/api/search", response_model=SearchResponse, dependencies=[Depends(search_rate_limit)])
 async def search(request: Request, file: UploadFile | None = File(default=None)) -> SearchResponse:
     content_type = request.headers.get("content-type", "")
 
@@ -250,10 +263,13 @@ class AssistantRequest(BaseModel):
 
 
 def _assistant_error_event(detail: str) -> str:
-    return f"data: {json.dumps({'type': 'error', 'detail': detail})}\n\n"
+    return f"data: {json.dumps({'type': 'error', 'detail': redact_secrets(detail)})}\n\n"
 
 
-@app.post("/api/assistant")
+@app.post(
+    "/api/assistant",
+    dependencies=[Depends(require_api_key), Depends(assistant_rate_limit)],
+)
 async def assistant(req: AssistantRequest) -> StreamingResponse:
     """Chat with the naturalist agent team, streaming trace + answer as SSE.
 
@@ -279,7 +295,9 @@ async def assistant(req: AssistantRequest) -> StreamingResponse:
 
         try:
             async for event in agent.astream(req.message, thread_id=req.thread_id):
-                yield f"data: {event.model_dump_json()}\n\n"
+                # Redact before it ever leaves the process: a tool/model step
+                # could echo back a key from its input or a misconfigured env.
+                yield f"data: {redact_secrets(event.model_dump_json())}\n\n"
         except AgentCoreError as exc:
             yield _assistant_error_event(str(exc))
             return
@@ -319,7 +337,7 @@ class GardenListResponse(BaseModel):
     items: list[GardenItemOut]
 
 
-@app.get("/api/garden", response_model=GardenListResponse)
+@app.get("/api/garden", response_model=GardenListResponse, dependencies=[Depends(require_api_key)])
 def list_garden() -> GardenListResponse:
     items = garden_service.list_specimens()
     return GardenListResponse(
@@ -327,7 +345,9 @@ def list_garden() -> GardenListResponse:
     )
 
 
-@app.post("/api/garden", response_model=GardenItemOut, status_code=201)
+@app.post(
+    "/api/garden", response_model=GardenItemOut, status_code=201, dependencies=[Depends(require_api_key)]
+)
 def add_to_garden(req: GardenAddRequest) -> GardenItemOut:
     label_name = garden_service.resolve_label_name(req.specimen_id)
     if label_name is None:
@@ -336,7 +356,12 @@ def add_to_garden(req: GardenAddRequest) -> GardenItemOut:
     return GardenItemOut(specimen_id=item.specimen_id, label_name=item.label_name, saved_at=item.saved_at)
 
 
-@app.delete("/api/garden/{specimen_id}", status_code=204, response_model=None)
+@app.delete(
+    "/api/garden/{specimen_id}",
+    status_code=204,
+    response_model=None,
+    dependencies=[Depends(require_api_key)],
+)
 def remove_from_garden(specimen_id: str) -> None:
     if not garden_service.remove_specimen(specimen_id):
         raise HTTPException(status_code=404, detail="specimen not saved in the garden")
@@ -367,7 +392,7 @@ def _memory_unavailable(exc: MemoryNotConfiguredError) -> HTTPException:
     return HTTPException(status_code=503, detail=str(exc))
 
 
-@app.get("/api/memory", response_model=MemoryListResponse)
+@app.get("/api/memory", response_model=MemoryListResponse, dependencies=[Depends(require_api_key)])
 async def list_memory() -> MemoryListResponse:
     try:
         items = await memory_service.list_memories(assistant_registries)
@@ -381,7 +406,7 @@ async def list_memory() -> MemoryListResponse:
     )
 
 
-@app.delete("/api/memory", response_model=MemoryDeleteResponse)
+@app.delete("/api/memory", response_model=MemoryDeleteResponse, dependencies=[Depends(require_api_key)])
 async def clear_memory() -> MemoryDeleteResponse:
     try:
         deleted = await memory_service.clear_memories(assistant_registries)

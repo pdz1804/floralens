@@ -51,6 +51,15 @@ export type PreprocessPreview = {
 // Client-side upload ceiling (backend enforces its own limit too).
 export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024; // 10 MB
 
+// ---- Opt-in API-key auth (PRD Phase 9) -----------------------------------
+// Sent only on the sensitive/mutating endpoints (assistant, garden, memory)
+// that the backend actually guards (see apps/api/app/auth.py). Unset by
+// default, so the local demo sends no header and is unaffected.
+function authHeaders(): Record<string, string> {
+  const key = process.env.NEXT_PUBLIC_FLORALENS_API_KEY;
+  return key ? { "X-API-Key": key } : {};
+}
+
 export async function getHealth(): Promise<Health> {
   const r = await fetch("/health", { cache: "no-store" });
   if (!r.ok) throw new Error(`health ${r.status}`);
@@ -159,7 +168,7 @@ export async function streamAssistant(
 ): Promise<void> {
   const r = await fetch("/api/assistant", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify(threadId ? { message, thread_id: threadId } : { message }),
     signal,
   });
@@ -220,7 +229,7 @@ async function readErrorDetail(r: Response, fallback: string): Promise<string> {
 }
 
 export async function getGarden(signal?: AbortSignal): Promise<GardenListResponse> {
-  const r = await fetch("/api/garden", { cache: "no-store", signal });
+  const r = await fetch("/api/garden", { cache: "no-store", headers: authHeaders(), signal });
   if (!r.ok) throw new Error(await readErrorDetail(r, `garden unavailable (${r.status})`));
   return r.json();
 }
@@ -228,7 +237,7 @@ export async function getGarden(signal?: AbortSignal): Promise<GardenListRespons
 export async function addToGarden(specimenId: string, signal?: AbortSignal): Promise<GardenItem> {
   const r = await fetch("/api/garden", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify({ specimen_id: specimenId }),
     signal,
   });
@@ -237,7 +246,11 @@ export async function addToGarden(specimenId: string, signal?: AbortSignal): Pro
 }
 
 export async function removeFromGarden(specimenId: string, signal?: AbortSignal): Promise<void> {
-  const r = await fetch(`/api/garden/${encodeURIComponent(specimenId)}`, { method: "DELETE", signal });
+  const r = await fetch(`/api/garden/${encodeURIComponent(specimenId)}`, {
+    method: "DELETE",
+    headers: authHeaders(),
+    signal,
+  });
   if (!r.ok) throw new Error(await readErrorDetail(r, `could not remove from garden (${r.status})`));
 }
 
@@ -247,13 +260,13 @@ export type MemoryListResponse = { items: MemoryItem[]; scope: string; namespace
 export type MemoryClearResponse = { deleted: number };
 
 export async function getMemory(signal?: AbortSignal): Promise<MemoryListResponse> {
-  const r = await fetch("/api/memory", { cache: "no-store", signal });
+  const r = await fetch("/api/memory", { cache: "no-store", headers: authHeaders(), signal });
   if (!r.ok) throw new Error(await readErrorDetail(r, `memory unavailable (${r.status})`));
   return r.json();
 }
 
 export async function clearMemory(signal?: AbortSignal): Promise<MemoryClearResponse> {
-  const r = await fetch("/api/memory", { method: "DELETE", signal });
+  const r = await fetch("/api/memory", { method: "DELETE", headers: authHeaders(), signal });
   if (!r.ok) throw new Error(await readErrorDetail(r, `could not clear memory (${r.status})`));
   return r.json();
 }
