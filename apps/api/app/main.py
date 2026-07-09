@@ -35,6 +35,9 @@ class SearchResultOut(BaseModel):
     label: int
     label_name: str
     score: float = Field(..., ge=-1.0, le=1.0, description="Cosine similarity, 0..1 range in practice")
+    # Calibrated by a promoted model (Phase 3b); null when the baseline is active.
+    confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    band: str | None = None
 
 
 class SearchResponse(BaseModel):
@@ -114,7 +117,12 @@ async def search(request: Request, file: UploadFile | None = File(default=None))
         model_version=model_version,
         results=[
             SearchResultOut(
-                specimen_id=r.specimen_id, label=r.label, label_name=r.label_name, score=r.score
+                specimen_id=r.specimen_id,
+                label=r.label,
+                label_name=r.label_name,
+                score=r.score,
+                confidence=r.confidence,
+                band=r.band,
             )
             for r in results
         ],
