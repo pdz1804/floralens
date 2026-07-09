@@ -35,7 +35,13 @@ export type PipelineData = {
   model_version: string;
 };
 
-export type PreprocessStep = { name: string; description: string };
+export type PreprocessStep = {
+  name: string;
+  description: string;
+  // PNG (base64) of the image AFTER this step is applied. Optional: older
+  // backends omit it, in which case the demo falls back to before/after only.
+  image_png_b64?: string;
+};
 export type PreprocessPreview = {
   steps: PreprocessStep[];
   before_png_b64: string;

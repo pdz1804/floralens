@@ -158,6 +158,13 @@ export default function Page() {
     results.forEach((r, i) => m.set(r.specimen_id, i + 1));
     return m;
   }, [results]);
+  // De-dupe the per-species blurb: top result carries the summary; individual
+  // cards no longer repeat the identical paragraph (display-only, no logic change).
+  const topMatch = results[0];
+  const distinctSpecies = useMemo(
+    () => new Set(results.map((r) => r.label_name)).size,
+    [results],
+  );
 
   return (
     <>
@@ -379,6 +386,39 @@ export default function Page() {
                 </div>
               )}
 
+              {phase === "done" && topMatch && (
+                <div className="top-match" data-testid="top-match">
+                  <div className="top-match-thumb" aria-hidden="true">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={`/api/specimen/${encodeURIComponent(topMatch.specimen_id)}/image`}
+                      alt=""
+                      loading="lazy"
+                      onError={(e) => {
+                        e.currentTarget.style.visibility = "hidden";
+                      }}
+                    />
+                  </div>
+                  <div className="top-match-body">
+                    <span className="top-match-label">
+                      <SparkleIcon width={13} height={13} aria-hidden="true" /> Top match
+                    </span>
+                    <div className="top-match-headline">
+                      <h4 className="top-match-name">{topMatch.label_name}</h4>
+                      <span className={`band ${bandFor(topMatch)}`}>{bandFor(topMatch)}</span>
+                      {distinctSpecies === 1 && results.length > 1 && (
+                        <span className="top-match-count">
+                          all {results.length} matches
+                        </span>
+                      )}
+                    </div>
+                    {topMatch.description ? (
+                      <ResultDesc text={topMatch.description} />
+                    ) : null}
+                  </div>
+                </div>
+              )}
+
               {shown.length > 0 && (
                 <div className="grid" data-testid="results">
                   {shown.map((r) => {
@@ -409,7 +449,6 @@ export default function Page() {
                             <span className={`band ${b}`}>{b}</span>
                             <span className="pct" data-testid="result-score">{pct}%</span>
                           </div>
-                          {r.description ? <ResultDesc text={r.description} /> : null}
                         </div>
                       </article>
                     );
