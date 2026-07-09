@@ -244,6 +244,17 @@ export default function Page() {
                     const pct = Math.max(0, Math.round((r.confidence ?? r.score) * 100));
                     return (
                       <div className="result" data-testid="result-card" key={r.specimen_id}>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          className="thumb"
+                          data-testid="result-thumb"
+                          src={`/api/specimen/${encodeURIComponent(r.specimen_id)}/image`}
+                          alt={r.label_name}
+                          loading="lazy"
+                          onError={(e) => {
+                            e.currentTarget.style.visibility = "hidden";
+                          }}
+                        />
                         <div className="rank">#{rankOf.get(r.specimen_id)} · {r.specimen_id}</div>
                         <div className="name" data-testid="result-name">{r.label_name}</div>
                         <div className="barwrap">

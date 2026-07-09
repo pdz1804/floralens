@@ -124,6 +124,45 @@ def reset_gallery_store_cache() -> None:
     get_gallery_store.cache_clear()
 
 
+# Base dir all specimen images must live under — a resolved-path allowlist so a
+# crafted specimen_id can never escape the dataset directory (defense in depth on
+# top of the metadata id lookup).
+_IMAGE_BASE = Path("ml/data/raw").resolve()
+
+
+@functools.lru_cache(maxsize=1)
+def _specimen_image_index() -> dict[str, Path]:
+    """Map every known specimen_id -> its on-disk image path (validated once).
+
+    Only ids present in the dataset metadata resolve, and only paths that stay
+    within `_IMAGE_BASE` are kept — so `/api/specimen/{id}/image` cannot be used
+    for path traversal.
+    """
+    _, metadata = load_embeddings(settings.embeddings_cache_dir)
+    index: dict[str, Path] = {}
+    for sid, meta in metadata["specimens"].items():
+        path = Path(meta["image_path"]).resolve()
+        try:
+            path.relative_to(_IMAGE_BASE)
+        except ValueError:
+            continue  # outside the dataset dir — skip defensively
+        index[sid] = path
+    return index
+
+
+def reset_specimen_image_index_cache() -> None:
+    """Test helper: clears the cached specimen-image index singleton."""
+    _specimen_image_index.cache_clear()
+
+
+def get_specimen_image_path(specimen_id: str) -> Path | None:
+    """Resolve a specimen_id to its image file, or None if unknown/missing."""
+    path = _specimen_image_index().get(specimen_id)
+    if path is None or not path.exists():
+        return None
+    return path
+
+
 def strip_exif_and_load(image_bytes: bytes) -> Image.Image:
     """Decode image bytes and return a clean RGB copy with EXIF metadata dropped."""
     with Image.open(io.BytesIO(image_bytes)) as img:

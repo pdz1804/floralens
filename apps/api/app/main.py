@@ -12,10 +12,15 @@ import binascii
 import logging
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from apps.api.app.config import settings
-from apps.api.app.search_service import search_image, strip_exif_and_load
+from apps.api.app.search_service import (
+    get_specimen_image_path,
+    search_image,
+    strip_exif_and_load,
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -126,4 +131,18 @@ async def search(request: Request, file: UploadFile | None = File(default=None))
             )
             for r in results
         ],
+    )
+
+
+@app.get("/api/specimen/{specimen_id}/image")
+def specimen_image(specimen_id: str) -> FileResponse:
+    """Serve a matched specimen's thumbnail image so the UI can preview results.
+
+    Only ids present in the dataset resolve (traversal-safe); unknown ids 404.
+    """
+    path = get_specimen_image_path(specimen_id)
+    if path is None:
+        raise HTTPException(status_code=404, detail="specimen image not found")
+    return FileResponse(
+        path, media_type="image/jpeg", headers={"Cache-Control": "public, max-age=3600"}
     )

@@ -65,6 +65,7 @@ label { display: block; font-size: 12px; color: var(--muted); margin: 12px 0 5px
 
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
 .result { background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+.result .thumb { width: 100%; height: 130px; object-fit: cover; border-radius: 8px; margin-bottom: 9px; background: var(--line); display: block; }
 .result .rank { font-family: var(--mono); font-size: 11px; color: var(--muted); }
 .result .name { font-weight: 650; margin: 3px 0 8px; text-transform: capitalize; }
 .result .barwrap { background: var(--line); border-radius: 6px; height: 9px; overflow: hidden; }

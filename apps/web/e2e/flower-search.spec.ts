@@ -32,6 +32,14 @@ test.describe("FloraLens flower search UI", () => {
     await expect(page.getByTestId("result-name").first()).toHaveText(/barbeton daisy/i);
     // A confidence percentage is rendered.
     await expect(page.getByTestId("result-score").first()).toHaveText(/%$/);
+    // Each result previews the matched specimen image (thumbnail actually loads).
+    const thumb = page.getByTestId("result-thumb").first();
+    await expect(thumb).toBeVisible();
+    await expect
+      .poll(async () => thumb.evaluate((el: HTMLImageElement) => el.naturalWidth), {
+        timeout: 15_000,
+      })
+      .toBeGreaterThan(0);
     await page.screenshot({ path: `${SHOTS}/02-search-results.png`, fullPage: true });
   });
 

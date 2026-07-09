@@ -9,7 +9,10 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 from apps.api.app.main import app
-from apps.api.app.search_service import reset_gallery_store_cache
+from apps.api.app.search_service import (
+    reset_gallery_store_cache,
+    reset_specimen_image_index_cache,
+)
 
 EMBEDDINGS_CACHE = Path("ml/data/embeddings_cache/metadata.json")
 
@@ -86,3 +89,27 @@ def test_search_base64_json_path_works():
     assert resp.status_code == 200
     body = resp.json()
     assert body["results"][0]["label_name"] == meta["label_name"]
+
+
+@pytest.mark.skipif(not EMBEDDINGS_CACHE.exists(), reason="embeddings cache not built yet")
+def test_specimen_image_serves_known_id():
+    reset_specimen_image_index_cache()
+    metadata = json.loads(EMBEDDINGS_CACHE.read_text(encoding="utf-8"))
+    specimen_id = next(
+        sid for sid, m in metadata["specimens"].items() if m["split"] == "gallery"
+    )
+    resp = client.get(f"/api/specimen/{specimen_id}/image")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "image/jpeg"
+    assert len(resp.content) > 0
+
+
+def test_specimen_image_unknown_id_404():
+    resp = client.get("/api/specimen/does-not-exist/image")
+    assert resp.status_code == 404
+
+
+def test_specimen_image_rejects_traversal_id():
+    # A crafted id that is not a known specimen must never resolve to a file.
+    resp = client.get("/api/specimen/..%2F..%2F..%2Fetc%2Fpasswd/image")
+    assert resp.status_code in (404, 400)
