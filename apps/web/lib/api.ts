@@ -104,6 +104,27 @@ export async function preprocessPreview(
   return r.json();
 }
 
+// ---- Embedding galaxy (GET /api/galaxy) ---------------------------------------
+export type GalaxyPoint = {
+  specimen_id: string;
+  x: number;
+  y: number;
+  z: number;
+  label: number;
+  label_name: string;
+  color: string; // stable per-species hex color, e.g. "#3fa06a"
+};
+export type GalaxyData = { points: GalaxyPoint[]; count: number };
+
+// 3D projection of the gallery embeddings (PCA), for the Galaxy tab's
+// fly-through point cloud + legend. Sourced from a precomputed artifact —
+// cheap, no re-embedding on this path.
+export async function getGalaxy(signal?: AbortSignal): Promise<GalaxyData> {
+  const r = await fetch("/api/galaxy", { cache: "no-store", signal });
+  if (!r.ok) throw new Error(`galaxy unavailable (${r.status})`);
+  return r.json();
+}
+
 // Provisional confidence banding from raw cosine until calibrated confidence
 // (Phase 3b) is present. Prefers the server's calibrated band/confidence.
 export function bandFor(r: SearchResult): "high" | "medium" | "low" {

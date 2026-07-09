@@ -2,6 +2,7 @@
 import base64
 import io
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -217,3 +218,32 @@ def test_pipeline_snapshot_returns_required_keys():
         assert key in body
     assert len(body["preprocessing"]) > 0
     assert body["backbone"]["frozen"] is True
+
+
+@pytest.mark.skipif(not EMBEDDINGS_CACHE.exists(), reason="embeddings cache not built yet")
+def test_galaxy_returns_points_with_coords_and_color():
+    resp = client.get("/api/galaxy")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["count"] == len(body["points"])
+    assert body["count"] >= 100
+    hex_color_re = re.compile(r"^#[0-9a-f]{6}$")
+    for p in body["points"]:
+        assert isinstance(p["specimen_id"], str) and p["specimen_id"]
+        for axis in ("x", "y", "z"):
+            assert isinstance(p[axis], (int, float))
+            assert -1.0 - 1e-6 <= p[axis] <= 1.0 + 1e-6
+        assert isinstance(p["label"], int)
+        assert isinstance(p["label_name"], str) and p["label_name"]
+        assert hex_color_re.match(p["color"])
+
+
+@pytest.mark.skipif(not EMBEDDINGS_CACHE.exists(), reason="embeddings cache not built yet")
+def test_galaxy_colors_are_stable_per_species():
+    resp = client.get("/api/galaxy")
+    assert resp.status_code == 200
+    points = resp.json()["points"]
+    color_by_label: dict[str, str] = {}
+    for p in points:
+        seen = color_by_label.setdefault(p["label_name"], p["color"])
+        assert seen == p["color"], f"{p['label_name']} has inconsistent colors"

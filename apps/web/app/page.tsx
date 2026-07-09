@@ -20,14 +20,16 @@ import {
 import { ThemeToggle } from "./theme-toggle";
 import { ResultDesc } from "./result-desc";
 import { PipelinePage } from "./pipeline-page";
+import { GalaxyPage } from "./galaxy-page";
 import { AboutPage } from "./about-page";
 
 type Phase = "idle" | "searching" | "done" | "error";
-type Tab = "search" | "pipeline" | "about";
+type Tab = "search" | "pipeline" | "galaxy" | "about";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "search", label: "Search" },
   { id: "pipeline", label: "Pipeline" },
+  { id: "galaxy", label: "Galaxy" },
   { id: "about", label: "About" },
 ];
 
@@ -563,6 +565,11 @@ export default function Page() {
         {tab === "pipeline" && (
           <div role="tabpanel" id="panel-pipeline" aria-labelledby="tab-pipeline">
             <PipelinePage />
+          </div>
+        )}
+        {tab === "galaxy" && (
+          <div role="tabpanel" id="panel-galaxy" aria-labelledby="tab-galaxy">
+            <GalaxyPage />
           </div>
         )}
         {tab === "about" && (

@@ -16,6 +16,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from apps.api.app.config import settings
+from apps.api.app.galaxy_service import get_galaxy_points
 from apps.api.app.pipeline_service import build_preprocess_preview, get_pipeline_snapshot
 from apps.api.app.search_service import (
     get_specimen_image_path,
@@ -176,6 +177,38 @@ def pipeline() -> dict:
     the app's Pipeline page. No fixed response_model: the shape mirrors
     whatever the underlying eval/calibration/promotion JSON reports contain."""
     return get_pipeline_snapshot()
+
+
+class GalaxyPointOut(BaseModel):
+    specimen_id: str
+    x: float
+    y: float
+    z: float
+    label: int
+    label_name: str
+    color: str = Field(..., description="Stable per-species hex color, e.g. '#3fa06a'")
+
+
+class GalaxyResponse(BaseModel):
+    points: list[GalaxyPointOut]
+    count: int
+
+
+@app.get("/api/galaxy", response_model=GalaxyResponse)
+def galaxy() -> GalaxyResponse:
+    """3D projection of the gallery embeddings (PCA — see
+    ml/scripts/build_galaxy_projection.py) powering the Galaxy tab's
+    fly-through point cloud. The projection is built once (lazily, on first
+    call) if missing, then served from an in-memory cache on every call after."""
+    try:
+        points = get_galaxy_points()
+    except FileNotFoundError as exc:
+        logger.error("galaxy projection source embeddings unavailable: %s", exc)
+        raise HTTPException(
+            status_code=503,
+            detail="embeddings cache not built yet; run the embedding pipeline first",
+        ) from exc
+    return GalaxyResponse(points=[GalaxyPointOut(**p) for p in points], count=len(points))
 
 
 @app.get("/api/specimen/{specimen_id}/image")

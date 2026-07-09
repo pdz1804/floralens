@@ -1422,3 +1422,201 @@ table.metrics tbody tr:hover { background: var(--panel-2); }
 
 /* ---- Band-filtered empty state -------------------------------------------- */
 .band-empty-cta { margin-top: 4px; text-transform: none; }
+
+/* ===========================================================================
+   ADDITIVE v4: Galaxy tab — 3D embedding point cloud + 2D fallback
+   =========================================================================== */
+.galaxy { max-width: 1160px; }
+.galaxy-hero { max-width: 640px; margin-bottom: 26px; }
+.galaxy-hero h2 { font-size: clamp(26px, 4vw, 38px); line-height: 1.1; margin: 0 0 12px; }
+.galaxy-hero p { color: var(--muted); margin: 0; max-width: 62ch; }
+
+.galaxy-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.galaxy-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--muted);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  padding: 6px 12px;
+  border-radius: var(--pill);
+}
+.galaxy-view-toggle {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--pill);
+}
+.galaxy-view-toggle button {
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--muted);
+  background: transparent;
+  border: none;
+  padding: 5px 14px;
+  border-radius: var(--pill);
+  cursor: pointer;
+  transition: color 0.15s var(--ease), background 0.15s var(--ease);
+}
+.galaxy-view-toggle button.active {
+  color: var(--primary-ink);
+  background: linear-gradient(145deg, var(--accent), var(--primary));
+}
+.galaxy-note { font-size: 12.5px; color: var(--faint); }
+.galaxy-clear-focus { padding: 6px 14px; margin-left: auto; }
+
+.galaxy-layout {
+  display: grid;
+  grid-template-columns: 1fr 280px;
+  gap: 20px;
+  align-items: start;
+}
+@media (max-width: 860px) { .galaxy-layout { grid-template-columns: 1fr; } }
+
+.galaxy-viz-wrap { min-width: 0; }
+.galaxy-canvas-wrap {
+  position: relative;
+  width: 100%;
+  height: 560px;
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+}
+.galaxy-tooltip {
+  font-family: var(--font-sans-stack);
+  font-size: 12px;
+  font-weight: 600;
+  color: #0b120d;
+  background: #eef5ee;
+  padding: 4px 9px;
+  border-radius: var(--pill);
+  white-space: nowrap;
+  text-transform: capitalize;
+  box-shadow: var(--shadow-sm);
+  pointer-events: none;
+}
+
+.galaxy-2d-fallback {
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  background: var(--panel);
+  box-shadow: var(--shadow-sm);
+  padding: 12px;
+}
+.galaxy-2d-svg { display: block; width: 100%; height: auto; aspect-ratio: 1 / 1; border-radius: var(--r); }
+.galaxy-2d-bg { fill: var(--panel-2); }
+.galaxy-2d-point { cursor: pointer; transition: opacity 0.15s var(--ease), r 0.15s var(--ease); }
+.galaxy-2d-note { margin: 10px 2px 0; color: var(--faint); font-size: 12px; }
+
+.galaxy-side { display: flex; flex-direction: column; gap: 16px; }
+
+.galaxy-specimen {
+  position: relative;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow);
+  padding: 14px;
+}
+.galaxy-specimen-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+.galaxy-specimen-close:hover { color: var(--ink); border-color: var(--accent); }
+.galaxy-specimen-thumb {
+  aspect-ratio: 4 / 3;
+  border-radius: var(--r);
+  overflow: hidden;
+  background: var(--panel-3);
+  border: 1px solid var(--line);
+  margin-bottom: 10px;
+}
+.galaxy-specimen-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.galaxy-specimen-body { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.galaxy-specimen-body h4 {
+  font-family: var(--font-serif-stack);
+  font-size: 15.5px;
+  font-weight: 600;
+  text-transform: capitalize;
+  margin: 0;
+  color: var(--ink);
+}
+.galaxy-specimen-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.galaxy-specimen-id {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--faint);
+  flex-basis: 100%;
+}
+
+.galaxy-legend {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-sm);
+  padding: 14px;
+}
+.galaxy-legend h3 {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--faint);
+  margin: 0 0 10px;
+  font-weight: 700;
+}
+.galaxy-legend ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.galaxy-legend-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-family: inherit;
+  font-size: 12.5px;
+  color: var(--muted);
+  background: transparent;
+  border: none;
+  border-radius: var(--r-sm);
+  padding: 7px 8px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s var(--ease), color 0.15s var(--ease);
+}
+.galaxy-legend-item:hover { background: var(--panel-2); color: var(--ink); }
+.galaxy-legend-item.active { background: var(--primary-soft); color: var(--primary); }
+.galaxy-legend-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.galaxy-legend-name { flex: 1; text-transform: capitalize; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.galaxy-legend-count {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--faint);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .galaxy-2d-point { transition: none; }
+}
