@@ -2,38 +2,38 @@
   "decision": "PROMOTE",
   "reasons": [
     "[vs baseline] candidate test Recall@5 (0.9976) within tolerance of baseline (0.9976); val/test gap and ECE within bounds",
-    "[vs active model] candidate test Recall@5 (0.9976) within tolerance of baseline (0.9976); val/test gap and ECE within bounds"
+    "[vs active model] candidate test Recall@5 (0.9976) within tolerance of baseline (0.9902); val/test gap and ECE within bounds"
   ],
   "comparison": {
     "baseline": {
       "model_version": "baseline",
-      "test_recall@1": 0.9926650366748166,
+      "test_recall@1": 0.9938875305623472,
       "test_recall@5": 0.9975550122249389,
       "test_recall@10": 0.9975550122249389,
-      "test_map@10": 0.9937241432840456,
-      "test_mrr": 0.99460065199674
+      "test_map@10": 0.9940057188319502,
+      "test_mrr": 0.9953137734311328
     },
     "active_model": {
-      "model_version": "finetuned_arcface_dinov2_v1",
-      "test_recall@5": 0.9975550122249389
+      "model_version": "finetuned_arcface_v1",
+      "test_recall@5": 0.9901960784313726
     },
     "candidate": {
-      "model_version": "finetuned_arcface_dinov2_v2",
+      "model_version": "finetuned_arcface_dinov2_v1",
       "method": "arcface",
       "val_recall@5": 0.9987775061124694,
-      "test_recall@1": 0.9926650366748166,
+      "test_recall@1": 0.991442542787286,
       "test_recall@5": 0.9975550122249389,
       "test_recall@10": 0.9975550122249389,
-      "test_map@10": 0.994784249387521,
-      "test_mrr": 0.9947025264873676,
+      "test_map@10": 0.9949125126823345,
+      "test_mrr": 0.9942950285248573,
       "val_test_recall5_gap": 0.0012224938875304847
     },
-    "calibration_ece_test": 4.963203300765277e-05
+    "calibration_ece_test": 5.189117797895258e-05
   },
   "thresholds": {
     "recall5_tolerance": 0.02,
     "val_test_gap_max": 0.05,
     "ece_max": 0.05
   },
-  "generated_at": "2026-07-09T18:14:58Z"
+  "generated_at": "2026-07-09T15:58:56Z"
 }

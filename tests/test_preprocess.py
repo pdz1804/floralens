@@ -1,4 +1,5 @@
 """Unit tests for the CV preprocessing pipeline (ml.preprocess.pipeline)."""
+import colorsys
 import io
 
 import numpy as np
@@ -117,3 +118,101 @@ def test_preprocess_rejects_non_positive_target_size():
     img = _solid_image((50, 50), (1, 2, 3))
     with pytest.raises(ValueError):
         preprocess(img, target_size=0)
+
+
+# --- capture_steps (per-step filmstrip) ------------------------------------
+
+
+def test_capture_steps_returns_one_image_per_step():
+    img = Image.new("RGB", (400, 300), (120, 140, 90))
+    out, steps, step_images = preprocess(img, capture_steps=True)
+    assert len(step_images) == len(steps)
+    for step_image in step_images:
+        assert isinstance(step_image, Image.Image)
+        assert step_image.mode == "RGB"
+    # Last captured image must match the final returned image exactly.
+    assert np.array_equal(np.asarray(step_images[-1]), np.asarray(out))
+
+
+def test_capture_steps_default_false_keeps_two_tuple_return():
+    img = Image.new("RGB", (100, 100), (10, 20, 30))
+    result = preprocess(img)
+    assert len(result) == 2  # unchanged for callers that don't pass capture_steps
+
+
+def test_capture_steps_images_reflect_progressive_transforms():
+    # The steps that actually mutate pixels (white_balance, clahe) must show a
+    # different image than the step before them (convert_rgb is a no-op here
+    # since the source is already RGB, so it is deliberately excluded).
+    img = _color_cast_image()
+    _out, steps, step_images = preprocess(img, capture_steps=True)
+    by_name = {s["name"]: image for s, image in zip(steps, step_images)}
+    assert not np.array_equal(np.asarray(by_name["center_crop"]), np.asarray(by_name["white_balance"]))
+    assert not np.array_equal(np.asarray(by_name["white_balance"]), np.asarray(by_name["clahe"]))
+
+
+# --- color-preserving white balance (bug fix regression tests) -------------
+
+
+def _saturated_red_subject_image(size: tuple[int, int] = (200, 200)) -> Image.Image:
+    """A greenish background with a solid, highly-saturated red disc in the
+    center — mimics a close-up red flower photo where the classic grey-world
+    assumption misfires (it reads the red subject itself as a color cast)."""
+    arr = np.full((size[1], size[0], 3), (60, 140, 70), dtype=np.uint8)
+    cy, cx = size[1] // 2, size[0] // 2
+    radius = min(size) // 3
+    yy, xx = np.mgrid[0 : size[1], 0 : size[0]]
+    mask = (yy - cy) ** 2 + (xx - cx) ** 2 <= radius**2
+    arr[mask] = (200, 40, 35)
+    return Image.fromarray(arr, mode="RGB")
+
+
+def _mean_hue_saturation(image: Image.Image) -> tuple[float, float]:
+    import cv2
+
+    arr = np.asarray(image.convert("RGB"))
+    hsv = cv2.cvtColor(arr, cv2.COLOR_RGB2HSV).astype(np.float64)
+    return float(hsv[..., 0].mean()), float(hsv[..., 1].mean())
+
+
+def test_saturated_red_subject_stays_red_not_brown():
+    img = _saturated_red_subject_image()
+    out, _steps = preprocess(img)
+
+    arr = np.asarray(out, dtype=np.float64)
+    h, w, _ = arr.shape
+    cy, cx = h // 2, w // 2
+    patch = arr[cy - 10 : cy + 10, cx - 10 : cx + 10].reshape(-1, 3).mean(axis=0)
+    r, g, b = patch
+    # A destroyed (brown/grey) rose would have g and b catch up to r (as the
+    # buggy full-strength grey-world did). The subject must stay clearly red.
+    assert r > g + 50 and r > b + 50, f"red subject color destroyed: mean rgb={patch}"
+
+
+def test_saturated_red_subject_hue_and_saturation_roughly_preserved():
+    img = _saturated_red_subject_image()
+    out, _steps = preprocess(img)
+    before_hue, before_sat = _mean_hue_saturation(img)
+    after_hue, after_sat = _mean_hue_saturation(out)
+    # OpenCV hue range is 0-179; a small shift is expected (resize/crop/CLAHE),
+    # a hue swing toward brown/desaturated would be much larger.
+    assert abs(after_hue - before_hue) < 10
+    assert after_sat > before_sat * 0.8
+
+
+def test_gentle_white_balance_preserves_far_more_color_than_full_strength():
+    """Directly demonstrates the fix: blending only a fraction of the grey-
+    world correction (the shipped behavior) leaves meaningfully more color
+    variation than the old full-strength correction would have."""
+    from ml.preprocess.pipeline import _grey_world_white_balance
+
+    img = _color_cast_image()
+    gentle = _grey_world_white_balance(img, blend_alpha=0.25)  # shipped default
+    full = _grey_world_white_balance(img, blend_alpha=1.0)  # old (buggy) behavior
+
+    gentle_means = np.asarray(gentle, dtype=np.float64).reshape(-1, 3).mean(axis=0)
+    full_means = np.asarray(full, dtype=np.float64).reshape(-1, 3).mean(axis=0)
+    gentle_spread = float(gentle_means.max() - gentle_means.min())
+    full_spread = float(full_means.max() - full_means.min())
+
+    assert gentle_spread > 5 * full_spread

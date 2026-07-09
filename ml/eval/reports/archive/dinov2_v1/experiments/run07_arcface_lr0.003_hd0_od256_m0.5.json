@@ -1,10 +1,10 @@
 {
-  "run_id": "run01_arcface_lr0.001_hd0_od128_m0.5",
+  "run_id": "run07_arcface_lr0.003_hd0_od256_m0.5",
   "config": {
     "loss": "arcface",
-    "lr": 0.001,
+    "lr": 0.003,
     "head_hidden_dim": 0,
-    "output_dim": 128,
+    "output_dim": 256,
     "margin": 0.5,
     "scale": 30.0,
     "batch_size": 128,
@@ -25,48 +25,48 @@
     "precision@1": 0.991442542787286,
     "map@1": 0.991442542787286,
     "recall@5": 0.9987775061124694,
-    "precision@5": 0.9946210268948654,
-    "map@5": 0.9952203884813908,
+    "precision@5": 0.9943765281173594,
+    "map@5": 0.9954360228198857,
     "recall@10": 0.9987775061124694,
-    "precision@10": 0.9766503667481644,
-    "map@10": 0.9952689347947821,
-    "silhouette": 0.8877096176147461,
+    "precision@10": 0.9770171149144234,
+    "map@10": 0.9951556668012673,
+    "silhouette": 0.9200266599655151,
     "num_queries": 818,
     "num_gallery": 1632
   },
   "epoch_curve": [
     {
       "epoch": 1,
-      "train_loss": 3.5657550105825067,
+      "train_loss": 2.049043488378326,
       "val_recall@5": 0.9987775061124694
     },
     {
       "epoch": 2,
-      "train_loss": 0.06804171268918759,
+      "train_loss": 0.06368449421845274,
       "val_recall@5": 0.9987775061124694
     },
     {
       "epoch": 3,
-      "train_loss": 0.0471416986191697,
+      "train_loss": 0.04085844482081787,
       "val_recall@5": 0.9987775061124694
     },
     {
       "epoch": 4,
-      "train_loss": 0.045914743773917306,
+      "train_loss": 0.038439393328897294,
       "val_recall@5": 0.9987775061124694
     },
     {
       "epoch": 5,
-      "train_loss": 0.025363937025960896,
+      "train_loss": 0.030894757792541187,
       "val_recall@5": 0.9987775061124694
     },
     {
       "epoch": 6,
-      "train_loss": 0.02348816376373482,
+      "train_loss": 0.03795221050758199,
       "val_recall@5": 0.9987775061124694
     }
   ],
-  "elapsed_seconds": 7.085477113723755,
+  "elapsed_seconds": 5.319061517715454,
   "train_ids": [
     "flowers102-te00000",
     "flowers102-te00001",
@@ -4053,5 +4053,5 @@
     "flowers102-va01018",
     "flowers102-va01019"
   ],
-  "generated_at": "2026-07-09T18:13:16Z"
+  "generated_at": "2026-07-09T15:57:56Z"
 }

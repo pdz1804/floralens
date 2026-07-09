@@ -3,6 +3,15 @@
 Reuses `ml.eval.harness.run_retrieval_eval` for the val-side metric so
 "early stopping on val Recall@5" is computed by the exact same protocol used
 for every other reported number (PRD §14.4) — no separate ad-hoc metric.
+
+Device-aware: `train_head` moves the head + loss module + each training batch
+onto the resolved device (`ml.device.resolve_device`, `FLORALENS_DEVICE`
+env var, default "auto" = cuda if available else cpu). Val-side evaluation
+(`evaluate_val_recall5`) infers the device from the head's own parameters, so
+it always matches wherever the head currently lives — no separate device
+plumbing needed there. Persisted head state dicts are always moved back to
+CPU first, so a candidate trained on GPU loads identically on a CPU-only
+inference host.
 """
 from __future__ import annotations
 
@@ -14,6 +23,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
+from ml.device import resolve_device
 from ml.eval.harness import EmbeddedSpecimen, run_retrieval_eval
 from ml.index.vector_store import VectorStore
 from ml.train.dataset import EmbeddingDataset
@@ -56,11 +66,15 @@ def _set_seed(seed: int) -> None:
 
 
 def _project_and_normalize(head: ProjectionHead, embeddings: np.ndarray) -> np.ndarray:
+    # Infer the device from the head's own parameters so this always matches
+    # wherever the caller placed the head (cuda during training, cpu when
+    # loading a persisted candidate for inference) with no separate device arg.
+    device = next(head.parameters()).device
     head.eval()
-    with torch.no_grad():
-        tensor = torch.from_numpy(np.asarray(embeddings, dtype=np.float32))
+    with torch.inference_mode():
+        tensor = torch.from_numpy(np.asarray(embeddings, dtype=np.float32)).to(device)
         out = head(tensor)
-    return out.numpy().astype(np.float32)
+    return out.cpu().numpy().astype(np.float32)
 
 
 def evaluate_val_recall5(
@@ -97,17 +111,27 @@ def train_head(
     gallery_specimens: list[EmbeddedSpecimen],
     val_specimens: list[EmbeddedSpecimen],
     input_dim: int,
+    device: torch.device | None = None,
 ) -> TrainResult:
-    """Train one hyperparameter configuration with early stopping on val Recall@5."""
-    _set_seed(config.seed)
+    """Train one hyperparameter configuration with early stopping on val Recall@5.
 
-    head = ProjectionHead(input_dim=input_dim, output_dim=config.output_dim, hidden_dim=config.head_hidden_dim)
+    `device` defaults to `ml.device.resolve_device()` (FLORALENS_DEVICE env
+    var, "auto" = cuda if available else cpu). The head and loss module train
+    on that device; the returned `head_state_dict` is always moved to CPU so
+    it loads identically regardless of which device produced it.
+    """
+    _set_seed(config.seed)
+    device = device or resolve_device()
+
+    head = ProjectionHead(
+        input_dim=input_dim, output_dim=config.output_dim, hidden_dim=config.head_hidden_dim
+    ).to(device)
     if config.loss == "arcface":
         criterion: torch.nn.Module = ArcFaceLoss(
             embedding_dim=config.output_dim, num_classes=num_classes, margin=config.margin, scale=config.scale
-        )
+        ).to(device)
     elif config.loss == "triplet":
-        criterion = TripletLoss(margin=config.margin)
+        criterion = TripletLoss(margin=config.margin).to(device)
     else:
         raise ValueError(f"unknown loss: {config.loss}")
 
@@ -131,6 +155,8 @@ def train_head(
         epoch_loss = 0.0
         num_batches = 0
         for batch_embeddings, batch_labels in loader:
+            batch_embeddings = batch_embeddings.to(device)
+            batch_labels = batch_labels.to(device)
             optimizer.zero_grad()
             projected = head(batch_embeddings)
             loss = criterion(projected, batch_labels)
@@ -147,7 +173,9 @@ def train_head(
         if val_recall5 > best_val_recall5 + config.early_stop_min_delta:
             best_val_recall5 = val_recall5
             best_epoch = epoch
-            best_state = {k: v.clone() for k, v in head.state_dict().items()}
+            # Persisted state always moved to CPU: a candidate trained on GPU
+            # must load identically on a CPU-only inference host.
+            best_state = {k: v.detach().cpu().clone() for k, v in head.state_dict().items()}
             best_val_metrics = val_metrics
             epochs_without_improvement = 0
         else:
@@ -157,7 +185,7 @@ def train_head(
 
     if best_state is None:
         # Degenerate case (e.g. max_epochs=0 in a test): fall back to current weights.
-        best_state = head.state_dict()
+        best_state = {k: v.detach().cpu().clone() for k, v in head.state_dict().items()}
         best_val_metrics = val_metrics
         best_epoch = epoch
         best_val_recall5 = val_recall5

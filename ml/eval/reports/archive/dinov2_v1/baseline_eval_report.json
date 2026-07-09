@@ -1,0 +1,42 @@
+{
+  "model_version": "baseline",
+  "backbone": "dinov2_vitl14",
+  "dataset_hash": "1d26d1c1634cd3890ecaa68cd2748df779e6d128",
+  "seed": 42,
+  "generated_at": "2026-07-09T15:08:34Z",
+  "gallery_size": 1632,
+  "val": {
+    "mrr": 0.9947025264873676,
+    "recall@1": 0.991442542787286,
+    "precision@1": 0.991442542787286,
+    "map@1": 0.991442542787286,
+    "recall@5": 0.9987775061124694,
+    "precision@5": 0.9946210268948655,
+    "map@5": 0.9954971475142625,
+    "recall@10": 0.9987775061124694,
+    "precision@10": 0.9738386308068437,
+    "map@10": 0.9949554089271316,
+    "silhouette": 0.7707300782203674,
+    "num_queries": 818,
+    "num_gallery": 1632
+  },
+  "val_per_query_count": 818,
+  "test": {
+    "mrr": 0.9953137734311328,
+    "recall@1": 0.9938875305623472,
+    "precision@1": 0.9938875305623472,
+    "map@1": 0.9938875305623472,
+    "recall@5": 0.9975550122249389,
+    "precision@5": 0.9929095354523227,
+    "map@5": 0.9950472018473243,
+    "recall@10": 0.9975550122249389,
+    "precision@10": 0.9727383863080669,
+    "map@10": 0.9940057188319502,
+    "silhouette": 0.7761517763137817,
+    "num_queries": 818,
+    "num_gallery": 1632
+  },
+  "test_per_query_count": 818,
+  "val_test_recall5_gap": 0.0012224938875304847,
+  "overfitting_flag": false
+}

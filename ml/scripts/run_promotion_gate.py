@@ -34,12 +34,13 @@ CANDIDATE_REPORT_PATH = REPORTS_DIR / "candidate_test_eval_report.json"
 CALIBRATION_REPORT_PATH = REPORTS_DIR / "candidate_calibration_report.json"
 DECISION_PATH = REPORTS_DIR / "promotion_decision.json"
 
-# The previously active model (OpenCLIP-backbone candidate), archived before
-# this pipeline run overwrote ml/models/finetuned_arcface_v1 with a new,
-# dimensionally-incompatible candidate (see run_finetune_sweep.py docstring).
-# If absent (e.g. a from-scratch run with no prior active model), the gate
-# falls back to comparing against the zero-shot baseline only.
-ACTIVE_MODEL_REPORT_PATH = REPORTS_DIR / "archive" / "openclip_v1" / "candidate_test_eval_report.json"
+# The previously active model — "finetuned_arcface_dinov2_v1" (DINOv2 backbone,
+# but the pre-colorfix full-strength grey-world white balance) — archived
+# before this pipeline run overwrote it with the color-preserving-preprocessing
+# candidate (see run_finetune_sweep.py docstring). If absent (e.g. a
+# from-scratch run with no prior active model), the gate falls back to
+# comparing against the zero-shot baseline only.
+ACTIVE_MODEL_REPORT_PATH = REPORTS_DIR / "archive" / "dinov2_v1" / "candidate_test_eval_report.json"
 
 
 def _load(path: Path) -> dict | None:

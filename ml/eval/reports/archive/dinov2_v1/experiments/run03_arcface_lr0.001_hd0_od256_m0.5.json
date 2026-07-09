@@ -1,10 +1,10 @@
 {
-  "run_id": "run01_arcface_lr0.001_hd0_od128_m0.5",
+  "run_id": "run03_arcface_lr0.001_hd0_od256_m0.5",
   "config": {
     "loss": "arcface",
     "lr": 0.001,
     "head_hidden_dim": 0,
-    "output_dim": 128,
+    "output_dim": 256,
     "margin": 0.5,
     "scale": 30.0,
     "batch_size": 128,
@@ -20,53 +20,53 @@
   "best_epoch": 1,
   "best_val_recall_at_5": 0.9987775061124694,
   "final_val_metrics": {
-    "mrr": 0.9947025264873676,
-    "recall@1": 0.991442542787286,
-    "precision@1": 0.991442542787286,
-    "map@1": 0.991442542787286,
+    "mrr": 0.995925020374898,
+    "recall@1": 0.9938875305623472,
+    "precision@1": 0.9938875305623472,
+    "map@1": 0.9938875305623472,
     "recall@5": 0.9987775061124694,
-    "precision@5": 0.9946210268948654,
-    "map@5": 0.9952203884813908,
+    "precision@5": 0.9946210268948655,
+    "map@5": 0.9957552295571854,
     "recall@10": 0.9987775061124694,
-    "precision@10": 0.9766503667481644,
-    "map@10": 0.9952689347947821,
-    "silhouette": 0.8877096176147461,
+    "precision@10": 0.9773838630806827,
+    "map@10": 0.9953185726205724,
+    "silhouette": 0.8810498118400574,
     "num_queries": 818,
     "num_gallery": 1632
   },
   "epoch_curve": [
     {
       "epoch": 1,
-      "train_loss": 3.5657550105825067,
+      "train_loss": 3.141796591458842,
       "val_recall@5": 0.9987775061124694
     },
     {
       "epoch": 2,
-      "train_loss": 0.06804171268918759,
+      "train_loss": 0.060704956012260586,
       "val_recall@5": 0.9987775061124694
     },
     {
       "epoch": 3,
-      "train_loss": 0.0471416986191697,
+      "train_loss": 0.04558733853870459,
       "val_recall@5": 0.9987775061124694
     },
     {
       "epoch": 4,
-      "train_loss": 0.045914743773917306,
+      "train_loss": 0.04406238564277171,
       "val_recall@5": 0.9987775061124694
     },
     {
       "epoch": 5,
-      "train_loss": 0.025363937025960896,
+      "train_loss": 0.029274538733766856,
       "val_recall@5": 0.9987775061124694
     },
     {
       "epoch": 6,
-      "train_loss": 0.02348816376373482,
+      "train_loss": 0.03638238345997201,
       "val_recall@5": 0.9987775061124694
     }
   ],
-  "elapsed_seconds": 7.085477113723755,
+  "elapsed_seconds": 5.123440265655518,
   "train_ids": [
     "flowers102-te00000",
     "flowers102-te00001",
@@ -4053,5 +4053,5 @@
     "flowers102-va01018",
     "flowers102-va01019"
   ],
-  "generated_at": "2026-07-09T18:13:16Z"
+  "generated_at": "2026-07-09T15:57:36Z"
 }

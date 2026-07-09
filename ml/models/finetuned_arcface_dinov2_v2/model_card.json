@@ -1,0 +1,117 @@
+{
+  "model_version": "finetuned_arcface_dinov2_v2",
+  "created_at": "2026-07-09T18:14:58Z",
+  "data": {
+    "dataset": "oxford-102-flowers",
+    "dataset_hash": "1d26d1c1634cd3890ecaa68cd2748df779e6d128",
+    "num_classes": 102,
+    "embedded_splits": {
+      "gallery": 1632,
+      "test": 818,
+      "val": 818
+    },
+    "total_embedded": 3268
+  },
+  "backbone": {
+    "name": "dinov2_vitl14",
+    "frozen": true,
+    "input_dim": 1024
+  },
+  "method": "arcface",
+  "hyperparams": {
+    "loss": "arcface",
+    "lr": 0.001,
+    "head_hidden_dim": 256,
+    "output_dim": 256,
+    "margin": 0.3,
+    "scale": 30.0,
+    "batch_size": 128,
+    "max_epochs": 40,
+    "early_stop_patience": 5,
+    "early_stop_min_delta": 0.001,
+    "seed": 42,
+    "weight_decay": 0.0001
+  },
+  "seed": 42,
+  "metrics": {
+    "val": {
+      "mrr": 0.9965362673186634,
+      "recall@1": 0.9951100244498777,
+      "precision@1": 0.9951100244498777,
+      "map@1": 0.9951100244498777,
+      "recall@5": 0.9987775061124694,
+      "precision@5": 0.9953545232273838,
+      "map@5": 0.995948791089378,
+      "recall@10": 0.9987775061124694,
+      "precision@10": 0.9775061124694354,
+      "map@10": 0.9960828218818091,
+      "silhouette": 0.9358816146850586,
+      "num_queries": 818,
+      "num_gallery": 1632
+    },
+    "test": {
+      "mrr": 0.9947025264873676,
+      "recall@1": 0.9926650366748166,
+      "precision@1": 0.9926650366748166,
+      "map@1": 0.9926650366748166,
+      "recall@5": 0.9975550122249389,
+      "precision@5": 0.9931540342298288,
+      "map@5": 0.9945242461287694,
+      "recall@10": 0.9975550122249389,
+      "precision@10": 0.9760391198043993,
+      "map@10": 0.994784249387521,
+      "silhouette": 0.9408586025238037,
+      "num_queries": 818,
+      "num_gallery": 1632
+    }
+  },
+  "val_test_recall5_gap": 0.0012224938875304847,
+  "calibration": {
+    "method": "isotonic",
+    "ece_test_before": 0.5893091715625159,
+    "ece_test_after": 4.963203300765277e-05,
+    "band_thresholds": {
+      "high": 0.7,
+      "medium": 0.4
+    }
+  },
+  "promotion": {
+    "decision": "PROMOTE",
+    "reasons": [
+      "[vs baseline] candidate test Recall@5 (0.9976) within tolerance of baseline (0.9976); val/test gap and ECE within bounds",
+      "[vs active model] candidate test Recall@5 (0.9976) within tolerance of baseline (0.9976); val/test gap and ECE within bounds"
+    ],
+    "comparison": {
+      "baseline": {
+        "model_version": "baseline",
+        "test_recall@1": 0.9926650366748166,
+        "test_recall@5": 0.9975550122249389,
+        "test_recall@10": 0.9975550122249389,
+        "test_map@10": 0.9937241432840456,
+        "test_mrr": 0.99460065199674
+      },
+      "active_model": {
+        "model_version": "finetuned_arcface_dinov2_v1",
+        "test_recall@5": 0.9975550122249389
+      },
+      "candidate": {
+        "model_version": "finetuned_arcface_dinov2_v2",
+        "method": "arcface",
+        "val_recall@5": 0.9987775061124694,
+        "test_recall@1": 0.9926650366748166,
+        "test_recall@5": 0.9975550122249389,
+        "test_recall@10": 0.9975550122249389,
+        "test_map@10": 0.994784249387521,
+        "test_mrr": 0.9947025264873676,
+        "val_test_recall5_gap": 0.0012224938875304847
+      },
+      "calibration_ece_test": 4.963203300765277e-05
+    },
+    "thresholds": {
+      "recall5_tolerance": 0.02,
+      "val_test_gap_max": 0.05,
+      "ece_max": 0.05
+    },
+    "generated_at": "2026-07-09T18:14:58Z"
+  }
+}

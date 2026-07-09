@@ -27,6 +27,7 @@ from ml.preprocess.pipeline import preprocess, preprocess_steps_only
 logger = logging.getLogger(__name__)
 
 _PREVIEW_MAX_SIDE = 512  # cap before/after thumbnail size for a small response payload
+_STEP_MAX_SIDE = 256  # per-step filmstrip thumbnails are smaller (N images per request)
 _MANIFEST_PATH = Path("ml/data/manifests/split_manifest.json")
 _EMBEDDINGS_METADATA_PATH = Path("ml/data/embeddings_cache/metadata.json")
 _REPORTS_DIR = Path("ml/eval/reports")
@@ -44,12 +45,25 @@ def _to_base64_png(image: Image.Image, max_side: int = _PREVIEW_MAX_SIDE) -> str
 
 
 def build_preprocess_preview(image_bytes: bytes) -> dict[str, Any]:
-    """Run preprocessing on an uploaded image and return steps + before/after
-    thumbnails as base64 PNG, for the UI's before/after preview."""
+    """Run preprocessing on an uploaded image and return the before/after
+    thumbnails plus a per-step filmstrip (each step's `image_png_b64` is the
+    image immediately after that step ran), for the UI's preprocessing
+    preview page.
+
+    Response shape:
+        {
+          "before_png_b64": str, "after_png_b64": str,
+          "steps": [{"name": str, "description": str, "image_png_b64": str}, ...]
+        }
+    """
     before = decode_image_bytes(image_bytes)
-    after, steps = preprocess(before)
+    after, steps, step_images = preprocess(before, capture_steps=True)
+    steps_with_images = [
+        {**step, "image_png_b64": _to_base64_png(image, max_side=_STEP_MAX_SIDE)}
+        for step, image in zip(steps, step_images)
+    ]
     return {
-        "steps": steps,
+        "steps": steps_with_images,
         "before_png_b64": _to_base64_png(before),
         "after_png_b64": _to_base64_png(after),
     }

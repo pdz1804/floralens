@@ -143,6 +143,26 @@ def test_preprocess_preview_returns_steps_and_images():
     base64.b64decode(body["after_png_b64"], validate=True)
 
 
+def test_preprocess_preview_per_step_filmstrip_has_valid_images():
+    # Each step must carry its own after-step image (the UI filmstrip), same
+    # exact shape as build_preprocess_preview: {name, description, image_png_b64}.
+    resp = client.post(
+        "/api/preprocess-preview",
+        files={"file": ("query.jpg", io.BytesIO(_tiny_jpeg_bytes()), "image/jpeg")},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    expected_step_names = {
+        "exif_autoorient", "convert_rgb", "resize", "center_crop", "white_balance", "clahe",
+    }
+    assert {s["name"] for s in body["steps"]} == expected_step_names
+    for step in body["steps"]:
+        assert isinstance(step["image_png_b64"], str) and len(step["image_png_b64"]) > 0
+        decoded = base64.b64decode(step["image_png_b64"], validate=True)
+        # Must be a real PNG (magic bytes), not an empty/garbage payload.
+        assert decoded[:8] == b"\x89PNG\r\n\x1a\n"
+
+
 def test_preprocess_preview_rejects_missing_file():
     resp = client.post("/api/preprocess-preview")
     assert resp.status_code == 422  # FastAPI validation: required 'file' field missing

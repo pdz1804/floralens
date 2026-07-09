@@ -18,15 +18,13 @@ fallbacks (kept as a last-resort safety net if the whole DINO family is
 unreachable, e.g. fully offline), expose the same `embed_image(pil_image) ->
 np.ndarray` interface (L2-normalized, deterministic).
 
-CPU-only by design: this environment's GPU has only 4GB VRAM and already
-backs a separate live service; reinstalling a CUDA-enabled torch build here
-would risk destabilizing that service's environment. All backbones run on
-CPU (`torch.cuda.is_available()` is not used). A CUDA build (e.g. torch
-2.7.1+cu121) is a documented **future optimization**, not attempted here.
-
-The backbone is frozen (no gradient updates) — only a small projection head
-(`ml.train.head`) is ever trained on top of its cached output vectors, so
-CPU-only inference is acceptable for both embedding and evaluation.
+GPU-aware: the active device is resolved once (`ml.device.resolve_device`,
+controlled by `FLORALENS_DEVICE=auto|cuda|cpu`, default "auto") when the
+backbone singleton is first built, and every backbone moves its model (and
+each input tensor) onto that device. "auto" picks the CUDA device when
+`torch.cuda.is_available()`, else CPU — this environment has an NVIDIA RTX
+A1000 Laptop GPU (4GB VRAM), plenty for a single frozen ViT-L forward pass in
+inference mode (no gradients, no optimizer state).
 """
 from __future__ import annotations
 
@@ -38,6 +36,8 @@ from typing import Callable
 import numpy as np
 import torch
 from PIL import Image
+
+from ml.device import resolve_device
 
 logger = logging.getLogger(__name__)
 
@@ -60,23 +60,25 @@ class _Dinov3Backbone:
     name = "dinov3_vitl16"
     embedding_dim = 1024  # ViT-L hidden size
 
-    def __init__(self) -> None:
+    def __init__(self, device: torch.device) -> None:
         from transformers import AutoImageProcessor, AutoModel
 
+        self.device = device
         self.processor = AutoImageProcessor.from_pretrained(_DINOV3_MODEL_ID)
-        self.model = AutoModel.from_pretrained(_DINOV3_MODEL_ID)
+        self.model = AutoModel.from_pretrained(_DINOV3_MODEL_ID).to(device)
         self.model.eval()
         torch.manual_seed(0)
 
-    @torch.no_grad()
+    @torch.inference_mode()
     def embed(self, image: Image.Image) -> np.ndarray:
         inputs = self.processor(images=image, return_tensors="pt")
+        inputs = {k: v.to(self.device) for k, v in inputs.items()}
         outputs = self.model(**inputs)
         pooled = getattr(outputs, "pooler_output", None)
         if pooled is None:
             pooled = outputs.last_hidden_state[:, 0]  # CLS token fallback
         pooled = pooled / pooled.norm(dim=-1, keepdim=True)
-        return pooled.squeeze(0).numpy().astype(np.float32)
+        return pooled.squeeze(0).cpu().numpy().astype(np.float32)
 
 
 class _Dinov2Backbone:
@@ -87,11 +89,12 @@ class _Dinov2Backbone:
     name = "dinov2_vitl14"
     embedding_dim = 1024
 
-    def __init__(self) -> None:
+    def __init__(self, device: torch.device) -> None:
         import os
 
         from torchvision import transforms
 
+        self.device = device
         # Load from the LOCAL torch.hub cache when present — `torch.hub.load`
         # otherwise makes a GitHub round-trip to validate the repo ref on every
         # load, and a transient network error there (e.g. HTTP 504) would
@@ -107,6 +110,7 @@ class _Dinov2Backbone:
             self.model = torch.hub.load(
                 _DINOV2_HUB_REPO, _DINOV2_HUB_MODEL, trust_repo=True, skip_validation=True
             )
+        self.model = self.model.to(device)
         self.model.eval()
         # Standard DINOv2 eval-time preprocessing (matches the reference repo):
         # resize short-side-preserving to 256 via bicubic, center-crop 224,
@@ -121,12 +125,12 @@ class _Dinov2Backbone:
         )
         torch.manual_seed(0)
 
-    @torch.no_grad()
+    @torch.inference_mode()
     def embed(self, image: Image.Image) -> np.ndarray:
-        tensor = self.preprocess(image).unsqueeze(0)
+        tensor = self.preprocess(image).unsqueeze(0).to(self.device)
         features = self.model(tensor)  # (1, 1024) CLS-token global feature
         features = features / features.norm(dim=-1, keepdim=True)
-        return features.squeeze(0).numpy().astype(np.float32)
+        return features.squeeze(0).cpu().numpy().astype(np.float32)
 
 
 class _OpenClipBackbone:
@@ -135,23 +139,25 @@ class _OpenClipBackbone:
     name = "open_clip_vit_b32_laion2b"
     embedding_dim = 512
 
-    def __init__(self) -> None:
+    def __init__(self, device: torch.device) -> None:
         import open_clip
 
+        self.device = device
         self.model, _, self.preprocess = open_clip.create_model_and_transforms(
             _OPEN_CLIP_MODEL_NAME,
             pretrained=_OPEN_CLIP_PRETRAINED,
             cache_dir=_OPEN_CLIP_CACHE_DIR,
         )
+        self.model = self.model.to(device)
         self.model.eval()
         torch.manual_seed(0)
 
-    @torch.no_grad()
+    @torch.inference_mode()
     def embed(self, image: Image.Image) -> np.ndarray:
-        tensor = self.preprocess(image).unsqueeze(0)
+        tensor = self.preprocess(image).unsqueeze(0).to(self.device)
         features = self.model.encode_image(tensor)
         features = features / features.norm(dim=-1, keepdim=True)
-        return features.squeeze(0).numpy().astype(np.float32)
+        return features.squeeze(0).cpu().numpy().astype(np.float32)
 
 
 class _ResNet50Backbone:
@@ -160,29 +166,30 @@ class _ResNet50Backbone:
     name = "resnet50_imagenet_penultimate"
     embedding_dim = 2048
 
-    def __init__(self) -> None:
+    def __init__(self, device: torch.device) -> None:
         from torchvision.models import ResNet50_Weights, resnet50
         from torchvision.transforms import Compose
 
+        self.device = device
         weights = ResNet50_Weights.DEFAULT
         base_model = resnet50(weights=weights)
         base_model.eval()
         # Strip the final classification layer -> penultimate 2048-d pooled features.
-        self.model = torch.nn.Sequential(*list(base_model.children())[:-1])
+        self.model = torch.nn.Sequential(*list(base_model.children())[:-1]).to(device)
         self.preprocess: Compose = weights.transforms()
         torch.manual_seed(0)
 
-    @torch.no_grad()
+    @torch.inference_mode()
     def embed(self, image: Image.Image) -> np.ndarray:
-        tensor = self.preprocess(image).unsqueeze(0)
+        tensor = self.preprocess(image).unsqueeze(0).to(self.device)
         features = self.model(tensor).flatten(1)
         features = features / features.norm(dim=-1, keepdim=True)
-        return features.squeeze(0).numpy().astype(np.float32)
+        return features.squeeze(0).cpu().numpy().astype(np.float32)
 
 
 # Ordered by preference: DINOv3 (primary target) -> DINOv2 (documented
 # fallback) -> OpenCLIP -> ResNet50 (last-resort, e.g. fully offline).
-_BACKBONE_CHAIN: tuple[tuple[str, Callable[[], object]], ...] = (
+_BACKBONE_CHAIN: tuple[tuple[str, Callable[[torch.device], object]], ...] = (
     ("DINOv3 ViT-L/16 (facebook/dinov3-vitl16-pretrain-lvd1689m)", _Dinov3Backbone),
     ("DINOv2 ViT-L/14 (torch.hub facebookresearch/dinov2 — documented fallback)", _Dinov2Backbone),
     ("OpenCLIP ViT-B-32 laion2b (further fallback)", _OpenClipBackbone),
@@ -195,14 +202,19 @@ def _get_backbone():
     """Lazily build and cache the process-wide backbone (thread-safe, singleton).
 
     Walks `_BACKBONE_CHAIN` in preference order; the first backbone that
-    loads successfully (weights reachable, no exception) becomes active.
+    loads successfully (weights reachable, no exception) becomes active. The
+    device (`FLORALENS_DEVICE=auto|cuda|cpu`, see `ml.device.resolve_device`)
+    is resolved once here and every backbone in the chain is constructed on it.
     """
     with _lock:
+        device = resolve_device()
         last_exc: Exception | None = None
         for label, backbone_cls in _BACKBONE_CHAIN:
             try:
-                backbone = backbone_cls()
-                logger.info("Loaded embedding backbone: %s (%s)", backbone.name, label)
+                backbone = backbone_cls(device)
+                logger.info(
+                    "Loaded embedding backbone: %s (%s) on device=%s", backbone.name, label, device
+                )
                 return backbone
             except Exception as exc:  # network/weights/gating unavailable -> try next
                 logger.warning("%s unavailable (%s); trying next backbone in the chain.", label, exc)
@@ -218,6 +230,11 @@ def backbone_name() -> str:
 def embedding_dim() -> int:
     """Return the embedding vector dimensionality of the active backbone."""
     return _get_backbone().embedding_dim
+
+
+def device_str() -> str:
+    """Return the resolved device (e.g. "cuda", "cpu") the active backbone runs on."""
+    return str(_get_backbone().device)
 
 
 def embed_image(image: Image.Image) -> np.ndarray:

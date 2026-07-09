@@ -1,9 +1,17 @@
 # FloraLens backend + ML dependencies.
-# Torch is CPU-only by design (see PRD/IMPLEMENTATION-PLAN: backbone is frozen,
-# no GPU needed for embedding/eval work). The GPU available in this
-# environment has only 4GB VRAM and already backs a separate live service;
-# a CUDA build (e.g. torch 2.7.1+cu121) is a documented FUTURE optimization,
-# not used here (see ml/embeddings/backbone.py module docstring).
+# Torch runs on GPU when available (see ml/device.py, FLORALENS_DEVICE=auto by
+# default). This environment's NVIDIA RTX A1000 Laptop GPU (4GB VRAM, driver
+# 573.44 / CUDA 12.8) is enough for a single frozen ViT-L forward pass and the
+# tiny projection-head training loop. Installed CUDA build:
+# torch==2.7.1+cu126 / torchvision==0.22.1+cu126 (cu121 wheels do not exist
+# for torch 2.7.1 — the newest cu121 torch on download.pytorch.org/whl/cu121
+# is 2.5.1; cu126 is the closest index that ships the exact 2.7.1 version
+# already pinned here, and CUDA 12.6 runtime is backward compatible with this
+# machine's 12.8 driver). Install with:
+#   pip install torch==2.7.1+cu126 torchvision==0.22.1+cu126 --index-url https://download.pytorch.org/whl/cu126
+# Falls back to the CPU wheel (torch==2.7.1 / torchvision==0.22.1, default
+# PyPI index) if no CUDA-capable GPU/driver is present — FLORALENS_DEVICE=auto
+# then resolves to cpu with no code change.
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
 pydantic==2.10.5
@@ -25,7 +33,9 @@ mlflow==2.19.0
 # DINOv3 attempt (and automatic upgrade if HF access is granted later) works.
 transformers==5.13.0
 
-# Installed separately with the CPU wheel index (see README setup steps):
+# Installed separately (see the torch/torchvision comment above for the
+# CUDA index URL + version pins actually used; fall back to the default PyPI
+# CPU wheels of the same versions if no compatible GPU is available):
 # torch==2.7.1
 # torchvision==0.22.1
 # open-clip-torch==2.31.0

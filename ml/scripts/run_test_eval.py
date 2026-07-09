@@ -29,7 +29,7 @@ from ml.train.model_io import load_candidate_head, project_embeddings
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-CANDIDATE_VERSION = "finetuned_arcface_dinov2_v1"
+CANDIDATE_VERSION = "finetuned_arcface_dinov2_v2"
 MODELS_DIR = "ml/models"
 REPORTS_DIR = "ml/eval/reports"
 

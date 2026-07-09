@@ -142,6 +142,9 @@ async def search(request: Request, file: UploadFile | None = File(default=None))
 class PreprocessStepOut(BaseModel):
     name: str
     description: str
+    # Base64 PNG of the image immediately after this step ran (bounded to
+    # ~256px on the longest side) — powers the UI's per-step filmstrip.
+    image_png_b64: str
 
 
 class PreprocessPreviewResponse(BaseModel):
@@ -153,8 +156,9 @@ class PreprocessPreviewResponse(BaseModel):
 @app.post("/api/preprocess-preview", response_model=PreprocessPreviewResponse)
 async def preprocess_preview(file: UploadFile = File(...)) -> PreprocessPreviewResponse:
     """Run the CV preprocessing pipeline on an uploaded image and return the
-    applied steps plus base64-encoded before/after PNGs, for the Pipeline
-    page's before/after preview. Same size/content-type bounds as /api/search."""
+    applied steps (each with its own after-step image, for a filmstrip) plus
+    base64-encoded before/after PNGs, for the Pipeline page's preview. Same
+    size/content-type bounds as /api/search."""
     raw = await file.read()
     raw = _validate_and_decode_bytes(raw, file.content_type)
     try:

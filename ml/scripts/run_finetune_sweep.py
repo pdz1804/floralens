@@ -39,15 +39,19 @@ from ml.train.trainer import TrainConfig, train_head
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Versioned by backbone lineage: the prior "finetuned_arcface_v1" candidate
-# was trained on 512-d OpenCLIP ViT-B-32 embeddings; this candidate is
-# trained on 1024-d DINOv2 ViT-L/14 embeddings (see ml/embeddings/backbone.py)
-# over the full gallery/val/test partitions + CV-preprocessed inputs, so it
-# gets its own version id rather than overwriting an artifact with an
-# incompatible input dimension. The prior candidate is preserved at
-# ml/models/archive_openclip_v1/ for the promotion-gate "vs current active
-# model" comparison.
-CANDIDATE_VERSION = "finetuned_arcface_dinov2_v1"
+# Versioned by preprocessing/backbone lineage: "finetuned_arcface_v1"
+# (archived at ml/models/archive_openclip_v1/) was 512-d OpenCLIP; "..._v1"
+# (dinov2, archived at ml/models/archive_dinov2_v1/) moved to 1024-d DINOv2
+# ViT-L/14 but still used a full-strength grey-world white balance that
+# destroyed saturated flower color (turned a red rose brown — see
+# ml/preprocess/pipeline.py docstring). This candidate ("_v2") re-embeds the
+# same DINOv2 backbone over the fixed, color-preserving preprocessing and
+# trains on GPU — same embedding dimensionality as v1 (1024-d input), so it
+# gets a new version id because the input *distribution* changed (different
+# pixels reach the backbone), not because of a dimension change. The prior
+# candidate is preserved at ml/models/archive_dinov2_v1/ for the
+# promotion-gate "vs current active model" comparison.
+CANDIDATE_VERSION = "finetuned_arcface_dinov2_v2"
 EXPERIMENTS_DIR = "ml/eval/reports/experiments"
 MODELS_DIR = "ml/models"
 TRAIN_CACHE_DIR = "ml/data/embeddings_cache/train"
