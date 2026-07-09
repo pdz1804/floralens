@@ -9,6 +9,14 @@ import {
   type Health,
   type SearchResult,
 } from "@/lib/api";
+import {
+  AlertIcon,
+  BloomIcon,
+  CameraLeafIcon,
+  LinkIcon,
+  SearchIcon,
+  SparkleIcon,
+} from "./icons";
 
 type Phase = "idle" | "searching" | "done" | "error";
 
@@ -127,21 +135,44 @@ export default function Page() {
 
   return (
     <>
-      <div className="topbar">
-        <span className="leaf">🌸</span>
-        <h1>FloraLens</h1>
-        <span className={`dot ${health ? "ok" : ""}`} data-testid="health-dot" />
+      <header className="topbar">
+        <div className="brand">
+          <span className="mark" aria-hidden="true">
+            <BloomIcon width={22} height={22} />
+          </span>
+          <div>
+            <h1 className="wordmark">FloraLens</h1>
+            <div className="tagline">Visual flower discovery &amp; similarity search</div>
+          </div>
+        </div>
         <span className="spacer" />
-        <span className="meta" data-testid="health-meta">
-          {health ? `model: ${health.model_version}` : "backend offline"}
-        </span>
-      </div>
+        <div className="status">
+          <span className={`dot ${health ? "ok" : ""}`} data-testid="health-dot" />
+          <span className="meta" data-testid="health-meta">
+            {health ? `model: ${health.model_version}` : "backend offline"}
+          </span>
+        </div>
+      </header>
 
-      <div className="wrap">
+      <main className="wrap">
+        <section className="hero">
+          <span className="eyebrow">
+            <BloomIcon width={14} height={14} /> Botanical intelligence
+          </span>
+          <h2>Find the flowers that look like yours.</h2>
+          <p>
+            Upload or link a photo and FloraLens embeds it, then surfaces visually similar
+            specimens from the gallery — each scored with a calibrated confidence band.
+          </p>
+        </section>
+
         <div className="layout">
           {/* LEFT: input */}
-          <div className="card">
-            <h2>Query flower</h2>
+          <section className="card left-card" aria-label="Query flower">
+            <div className="head">
+              <h3 className="title">Query flower</h3>
+              <span className="sub">upload · url</span>
+            </div>
             <div className="body">
               <div
                 className={`dropzone ${dragging ? "drag" : ""}`}
@@ -160,8 +191,11 @@ export default function Page() {
                 onDragLeave={() => setDragging(false)}
                 onDrop={onDrop}
               >
-                <div className="big">📷</div>
-                <p>Click, drag &amp; drop, or paste a flower photo</p>
+                <span className="ico" aria-hidden="true">
+                  <CameraLeafIcon width={26} height={26} />
+                </span>
+                <p className="lead">Drop a flower photo here</p>
+                <p className="hint">Click to browse, drag &amp; drop, or paste an image</p>
                 <input
                   ref={fileRef}
                   type="file"
@@ -172,8 +206,10 @@ export default function Page() {
                 />
               </div>
 
-              <label htmlFor="url">…or load from URL</label>
-              <div style={{ display: "flex", gap: 8 }}>
+              <label className="field-label" htmlFor="url">
+                <LinkIcon width={15} height={15} /> …or load from a URL
+              </label>
+              <div className="url-row">
                 <input
                   id="url"
                   type="text"
@@ -182,7 +218,7 @@ export default function Page() {
                   onChange={(e) => setUrlInput(e.target.value)}
                   data-testid="url-input"
                 />
-                <button className="secondary" style={{ width: "auto", marginTop: 0 }} onClick={onLoadUrl}>
+                <button type="button" className="btn btn-ghost" onClick={onLoadUrl}>
                   Load
                 </button>
               </div>
@@ -194,18 +230,38 @@ export default function Page() {
                 </div>
               )}
 
-              <button data-testid="search-btn" onClick={onSearch} disabled={!file || phase === "searching"}>
-                {phase === "searching" ? "Searching…" : "Find similar flowers"}
+              <button
+                type="button"
+                className="btn btn-primary"
+                data-testid="search-btn"
+                onClick={onSearch}
+                disabled={!file || phase === "searching"}
+              >
+                {phase === "searching" ? (
+                  <>
+                    <span className="spin" aria-hidden="true" /> Searching…
+                  </>
+                ) : (
+                  <>
+                    <SearchIcon width={17} height={17} aria-hidden="true" /> Find similar flowers
+                  </>
+                )}
               </button>
-              {error && <p className="err" data-testid="error" style={{ marginBottom: 0 }}>{error}</p>}
+              {error && (
+                <p className="err" data-testid="error">
+                  <AlertIcon width={16} height={16} aria-hidden="true" />
+                  <span>{error}</span>
+                </p>
+              )}
             </div>
-          </div>
+          </section>
 
           {/* RIGHT: results */}
-          <div className="card">
-            <h2>
-              Matches{modelVersion ? ` · model ${modelVersion}` : ""}
-            </h2>
+          <section className="card" aria-label="Matches">
+            <div className="head">
+              <h3 className="title">Matches</h3>
+              {modelVersion && <span className="sub">model {modelVersion}</span>}
+            </div>
             <div className="body">
               {results.length > 0 && (
                 <div className="filters" data-testid="filters">
@@ -225,16 +281,44 @@ export default function Page() {
               )}
 
               {phase === "searching" && (
-                <div className="state" data-testid="loading">
-                  <div className="spinner" />
-                  <p>Embedding &amp; searching the gallery…</p>
+                <div className="grid" data-testid="loading" aria-busy="true" aria-label="Searching the gallery">
+                  {Array.from({ length: 6 }).map((_, i) => (
+                    <div className="skeleton-card" key={i}>
+                      <div className="sk sk-thumb" />
+                      <div className="sk-body">
+                        <div className="sk sk-line w-70" />
+                        <div className="sk sk-bar" />
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
               {phase === "idle" && results.length === 0 && (
-                <div className="state">Choose a flower photo and search to see scored matches.</div>
+                <div className="state">
+                  <span className="state-ico" aria-hidden="true">
+                    <SparkleIcon width={26} height={26} />
+                  </span>
+                  <span className="state-title">Ready when you are</span>
+                  <p>Choose a flower photo and search to see scored, ranked matches.</p>
+                </div>
+              )}
+              {phase === "error" && results.length === 0 && (
+                <div className="state error">
+                  <span className="state-ico" aria-hidden="true">
+                    <AlertIcon width={26} height={26} />
+                  </span>
+                  <span className="state-title">Something went wrong</span>
+                  <p>{error ?? "Please try another image."}</p>
+                </div>
               )}
               {phase === "done" && results.length === 0 && (
-                <div className="state">No matches found.</div>
+                <div className="state">
+                  <span className="state-ico" aria-hidden="true">
+                    <SparkleIcon width={26} height={26} />
+                  </span>
+                  <span className="state-title">No matches found</span>
+                  <p>Try a clearer, closer photo of a single bloom.</p>
+                </div>
               )}
 
               {shown.length > 0 && (
@@ -243,28 +327,32 @@ export default function Page() {
                     const b = bandFor(r);
                     const pct = Math.max(0, Math.round((r.confidence ?? r.score) * 100));
                     return (
-                      <div className="result" data-testid="result-card" key={r.specimen_id}>
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          className="thumb"
-                          data-testid="result-thumb"
-                          src={`/api/specimen/${encodeURIComponent(r.specimen_id)}/image`}
-                          alt={r.label_name}
-                          loading="lazy"
-                          onError={(e) => {
-                            e.currentTarget.style.visibility = "hidden";
-                          }}
-                        />
-                        <div className="rank">#{rankOf.get(r.specimen_id)} · {r.specimen_id}</div>
-                        <div className="name" data-testid="result-name">{r.label_name}</div>
-                        <div className="barwrap">
-                          <div className="bar" style={{ width: `${Math.max(3, pct)}%` }} />
+                      <article className="result" data-testid="result-card" key={r.specimen_id}>
+                        <div className="thumb-wrap">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            className="thumb"
+                            data-testid="result-thumb"
+                            src={`/api/specimen/${encodeURIComponent(r.specimen_id)}/image`}
+                            alt={r.label_name}
+                            loading="lazy"
+                            onError={(e) => {
+                              e.currentTarget.style.visibility = "hidden";
+                            }}
+                          />
+                          <span className="rank">#{rankOf.get(r.specimen_id)} · {r.specimen_id}</span>
                         </div>
-                        <div className="scoreline">
-                          <span className={`band ${b}`}>{b}</span>
-                          <span className="pct" data-testid="result-score">{pct}%</span>
+                        <div className="meta">
+                          <h4 className="name" data-testid="result-name">{r.label_name}</h4>
+                          <div className="barwrap">
+                            <div className={`bar ${b}`} style={{ width: `${Math.max(3, pct)}%` }} />
+                          </div>
+                          <div className="scoreline">
+                            <span className={`band ${b}`}>{b}</span>
+                            <span className="pct" data-testid="result-score">{pct}%</span>
+                          </div>
                         </div>
-                      </div>
+                      </article>
                     );
                   })}
                 </div>
@@ -275,9 +363,9 @@ export default function Page() {
                 </p>
               )}
             </div>
-          </div>
+          </section>
         </div>
-      </div>
+      </main>
     </>
   );
 }
