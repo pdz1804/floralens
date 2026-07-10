@@ -29,14 +29,16 @@ import logging
 import sys
 from pathlib import Path
 
+import numpy as np
 from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
+from PIL import Image
 from pydantic import BaseModel, Field
 
 from agent_core import sqlite_checkpointer
 from agent_core.errors import AgentCoreError
 
-from apps.api.app import garden_service, memory_service
+from apps.api.app import garden_service, memory_service, models_service, specimen_service
 from apps.api.app.env_loader import load_env_files
 from apps.api.app.assistant_service import build_floralens_registries, compile_naturalist
 from apps.api.app.auth import require_api_key
@@ -150,8 +152,12 @@ def _validate_and_decode_bytes(raw: bytes, declared_content_type: str | None) ->
     return raw
 
 
-@app.post("/api/search", response_model=SearchResponse, dependencies=[Depends(search_rate_limit)])
-async def search(request: Request, file: UploadFile | None = File(default=None)) -> SearchResponse:
+async def _load_query_image(request: Request, file: UploadFile | None) -> Image.Image:
+    """Read a query image from the request (multipart 'file' OR a JSON body with
+    'image_base64'), apply the same size/content-type bounds as the rest of the
+    API, and return the preprocessed, ready-to-embed PIL image. Shared by
+    /api/search and /api/embed so both accept identical inputs and raise the
+    same 400s."""
     content_type = request.headers.get("content-type", "")
 
     if file is not None:
@@ -175,9 +181,14 @@ async def search(request: Request, file: UploadFile | None = File(default=None))
         )
 
     try:
-        image = strip_exif_and_load(raw)
+        return strip_exif_and_load(raw)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"could not decode image: {exc}") from exc
+
+
+@app.post("/api/search", response_model=SearchResponse, dependencies=[Depends(search_rate_limit)])
+async def search(request: Request, file: UploadFile | None = File(default=None)) -> SearchResponse:
+    image = await _load_query_image(request, file)
 
     try:
         model_version, results = search_image(image)
@@ -324,6 +335,119 @@ def specimen_image(specimen_id: str) -> FileResponse:
         raise HTTPException(status_code=404, detail="specimen image not found")
     return FileResponse(
         path, media_type="image/jpeg", headers={"Cache-Control": "public, max-age=3600"}
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Model registry, specimen detail, and query embedding (PRD §11 REST surface).
+# --------------------------------------------------------------------------- #
+class ModelInfoOut(BaseModel):
+    name: str
+    active: bool
+    # Best-effort, read from each version's metadata / eval report; omitted
+    # (null) when the artifact doesn't carry it.
+    backbone: str | None = None
+    metrics: dict | None = None
+
+
+class ModelsResponse(BaseModel):
+    active: str
+    models: list[ModelInfoOut]
+
+
+@app.get("/api/models", response_model=ModelsResponse)
+def models() -> ModelsResponse:
+    """List the available model versions (the synthetic zero-shot 'baseline'
+    plus every ModelVersion artifact directory under settings.models_dir),
+    marking which one is active (settings.model_version) and surfacing each
+    version's key retrieval metrics when its metadata/eval report has them.
+    Read-only/best-effort — never loads the backbone; an environment without
+    trained artifacts still returns the baseline entry."""
+    data = models_service.get_models()
+    return ModelsResponse(
+        active=data["active"],
+        models=[ModelInfoOut(**m) for m in data["models"]],
+    )
+
+
+class SpecimenDetailResponse(BaseModel):
+    specimen_id: str
+    label: int
+    label_name: str
+    split: str
+    image_url: str
+
+
+@app.get("/api/specimens/{specimen_id}", response_model=SpecimenDetailResponse)
+def specimen_detail(specimen_id: str) -> SpecimenDetailResponse:
+    """Richer detail for one specimen (label, species name, split, and the URL
+    of its thumbnail) sourced from the embeddings-cache metadata. 404 for an
+    unknown id; 503 if the cache hasn't been built yet (same contract as
+    /api/categories)."""
+    try:
+        detail = specimen_service.get_specimen_detail(specimen_id)
+    except FileNotFoundError as exc:
+        logger.error("specimen detail source metadata unavailable: %s", exc)
+        raise HTTPException(
+            status_code=503,
+            detail="embeddings cache not built yet; run the embedding pipeline first",
+        ) from exc
+    if detail is None:
+        raise HTTPException(status_code=404, detail="specimen not found")
+    return SpecimenDetailResponse(**detail)
+
+
+class EmbedResponse(BaseModel):
+    model_version: str
+    dim: int
+    embedding: list[float]
+
+
+def _embed_query_image(image: Image.Image) -> tuple[str, np.ndarray]:
+    """Embed a query image via the exact backbone/projection path /api/search
+    uses (search_service): the frozen backbone embedding, then — if a promoted
+    candidate is active — projected through its head into the gallery's space.
+    Returns (effective model_version, L2-normalized vector)."""
+    from apps.api.app import search_service
+    from ml.embeddings.backbone import embed_image
+
+    vector = embed_image(image)
+    candidate = search_service._load_candidate(settings.model_version)
+    if candidate:
+        from ml.train.model_io import project_embeddings
+
+        head, _, _ = candidate
+        vector = project_embeddings(head, vector.reshape(1, -1))[0]
+        model_version = settings.model_version
+    else:
+        model_version = "baseline"
+
+    # Backbone and head both emit L2-normalized vectors; re-normalize defensively
+    # so the response's `embedding` is guaranteed unit-norm regardless of head.
+    norm = float(np.linalg.norm(vector))
+    if norm > 0:
+        vector = vector / norm
+    return model_version, vector
+
+
+@app.post("/api/embed", response_model=EmbedResponse, dependencies=[Depends(search_rate_limit)])
+async def embed(request: Request, file: UploadFile | None = File(default=None)) -> EmbedResponse:
+    """Return the normalized embedding vector (and its dimensionality) for an
+    uploaded image, using the same input handling and embedding path as
+    /api/search. Accepts a multipart 'file' OR a JSON body with 'image_base64'.
+    Rate-limited like /api/search."""
+    image = await _load_query_image(request, file)
+    try:
+        model_version, vector = _embed_query_image(image)
+    except FileNotFoundError as exc:
+        logger.error("embedding backbone/model artifact unavailable: %s", exc)
+        raise HTTPException(
+            status_code=503, detail="embedding model not available; build the pipeline first"
+        ) from exc
+    return EmbedResponse(
+        model_version=model_version,
+        dim=int(vector.shape[0]),
+        embedding=[float(x) for x in vector.tolist()],
     )
 
 
