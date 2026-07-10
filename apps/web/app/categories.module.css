@@ -454,16 +454,20 @@
 
 .memberGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(116px, 1fr));
+  gap: 12px;
 }
 .member {
   position: relative;
+  /* Reset the browser's default <figure> margin (0 40px) — without this the
+     thumbnail collapses to ~22px inside its grid cell. */
+  margin: 0;
   aspect-ratio: 1 / 1;
   border-radius: var(--r-sm);
   overflow: hidden;
   background: var(--panel-3);
   border: 1px solid var(--line);
+  box-shadow: var(--shadow-sm);
 }
 .member img {
   width: 100%;
