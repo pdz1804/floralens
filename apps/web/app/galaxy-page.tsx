@@ -1,11 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type ElementRef, type RefObject, useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useThree, type ThreeEvent } from "@react-three/fiber";
 import { Html, OrbitControls } from "@react-three/drei";
 import * as THREE from "three";
 import { getGalaxy, type GalaxyData, type GalaxyPoint } from "@/lib/api";
-import { AlertIcon, GridIcon, SparkleIcon } from "./icons";
+import { AlertIcon, GridIcon, LeafIcon, SparkleIcon, TagIcon, WandIcon } from "./icons";
+import styles from "./galaxy.module.css";
+
+type OrbitControlsRef = RefObject<ElementRef<typeof OrbitControls>>;
 
 // Neutral color for points dimmed by the legend's species filter — matches
 // the botanical theme's --muted family closely enough without importing CSS
@@ -136,11 +139,13 @@ function PointCloud({
 function Galaxy3D({
   points,
   hoveredPoint,
+  controlsRef,
   onHover,
   onSelect,
 }: {
   points: (GalaxyPoint & { displayColor: string })[];
   hoveredPoint: GalaxyPoint | null;
+  controlsRef: OrbitControlsRef;
   onHover: (specimenId: string | null) => void;
   onSelect: (point: GalaxyPoint) => void;
 }) {
@@ -161,6 +166,7 @@ function Galaxy3D({
         </Html>
       )}
       <OrbitControls
+        ref={controlsRef}
         makeDefault
         enableDamping
         dampingFactor={0.08}
@@ -226,29 +232,174 @@ function Galaxy2D({
   );
 }
 
-function SpecimenCard({ point, onClose }: { point: GalaxyPoint; onClose: () => void }) {
+function SpecimenCard({
+  point,
+  isFocused,
+  onFocus,
+  onClose,
+}: {
+  point: GalaxyPoint;
+  isFocused: boolean;
+  onFocus: () => void;
+  onClose: () => void;
+}) {
   return (
-    <div className="galaxy-specimen" data-testid="galaxy-specimen-card">
-      <button type="button" className="galaxy-specimen-close" onClick={onClose} aria-label="Close specimen preview">
-        ×
-      </button>
-      <div className="galaxy-specimen-thumb">
+    <section
+      className={`${styles.panel} ${styles.specimen}`}
+      data-testid="galaxy-specimen-card"
+      aria-label={`Selected specimen: ${point.label_name}`}
+    >
+      <div className={styles.panelHead}>
+        <h3 className={styles.panelTitle}>
+          <LeafIcon width={13} height={13} /> Selected specimen
+        </h3>
+        <button
+          type="button"
+          className={styles.specimenClose}
+          onClick={onClose}
+          aria-label="Close specimen preview"
+        >
+          <CloseGlyph />
+        </button>
+      </div>
+      <div className={styles.specimenThumb}>
+        <span className={styles.specimenThumbFallback} aria-hidden="true">
+          <LeafIcon width={26} height={26} />
+        </span>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={`/api/specimen/${encodeURIComponent(point.specimen_id)}/image`}
-          alt={point.label_name}
+          alt={`Gallery specimen identified as ${point.label_name}`}
           loading="lazy"
           onError={(e) => {
             e.currentTarget.style.visibility = "hidden";
           }}
         />
       </div>
-      <div className="galaxy-specimen-body">
-        <span className="galaxy-specimen-dot" style={{ background: point.color }} aria-hidden="true" />
-        <h4>{point.label_name}</h4>
-        <span className="galaxy-specimen-id">{point.specimen_id}</span>
+      <div className={styles.specimenBody}>
+        <h4 className={styles.specimenName}>
+          <span className={styles.specimenDot} style={{ background: point.color }} aria-hidden="true" />
+          {point.label_name}
+        </h4>
+        <span className={styles.specimenId} title={point.specimen_id}>
+          {point.specimen_id}
+        </span>
+        <button type="button" className={`btn btn-ghost ${styles.specimenFocus}`} onClick={onFocus}>
+          <TagIcon width={15} height={15} aria-hidden="true" />
+          {isFocused ? "Clear species filter" : `Isolate ${point.label_name}`}
+        </button>
       </div>
-    </div>
+    </section>
+  );
+}
+
+/** Small × glyph as an inline SVG so the close control scales with the icon set
+ * and inherits currentColor (no bare unicode that fights the type ramp). */
+function CloseGlyph() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" aria-hidden="true">
+      <path d="m6 6 12 12M18 6 6 18" />
+    </svg>
+  );
+}
+
+function Legend({
+  legend,
+  focusSpecies,
+  onToggle,
+}: {
+  legend: LegendEntry[];
+  focusSpecies: string | null;
+  onToggle: (name: string) => void;
+}) {
+  return (
+    <section className={styles.panel} aria-label="Species legend">
+      <div className={styles.panelHead}>
+        <h3 className={styles.panelTitle}>
+          <SparkleIcon width={13} height={13} /> Top species
+        </h3>
+        <span className={styles.legendMeta}>{legend.length} shown</span>
+      </div>
+      <ul className={styles.legendList}>
+        {legend.map((l) => {
+          const active = focusSpecies === l.label_name;
+          return (
+            <li key={l.label_name}>
+              <button
+                type="button"
+                className={`${styles.legendItem} ${active ? styles.active : ""}`}
+                onClick={() => onToggle(l.label_name)}
+                aria-pressed={active}
+              >
+                <span className={styles.swatch} style={{ background: l.color }} aria-hidden="true" />
+                <span className={styles.legendName}>{l.label_name}</span>
+                <CheckGlyph className={styles.legendCheck} />
+                <span className={styles.legendCount}>{l.count}</span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+      <p className={styles.legendFoot}>
+        {focusSpecies ? (
+          <>
+            Isolating <strong>{focusSpecies}</strong> — other species are dimmed. Tap it again to
+            reset.
+          </>
+        ) : (
+          "Tap a species to isolate it in the cloud; the rest dim out."
+        )}
+      </p>
+    </section>
+  );
+}
+
+function CheckGlyph({ className }: { className?: string }) {
+  return (
+    <svg className={className} width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="m5 12.5 4.5 4.5L19 6.5" />
+    </svg>
+  );
+}
+
+function ControlsPanel({ mode, onReset }: { mode: "3d" | "2d"; onReset: () => void }) {
+  return (
+    <section className={styles.panel} aria-label="Navigation controls">
+      <div className={styles.panelHead}>
+        <h3 className={styles.panelTitle}>
+          <GridIcon width={13} height={13} /> Controls
+        </h3>
+      </div>
+      <ul className={styles.hintList}>
+        {mode === "3d" ? (
+          <>
+            <li className={styles.hint}>
+              <span className={styles.hintKey}>Drag</span> Orbit the cloud
+            </li>
+            <li className={styles.hint}>
+              <span className={styles.hintKey}>Scroll</span> Zoom in / out
+            </li>
+            <li className={styles.hint}>
+              <span className={styles.hintKey}>Click</span> Inspect a specimen
+            </li>
+          </>
+        ) : (
+          <>
+            <li className={styles.hint}>
+              <span className={styles.hintKey}>Hover</span> Reveal a species
+            </li>
+            <li className={styles.hint}>
+              <span className={styles.hintKey}>Click</span> Inspect a specimen
+            </li>
+          </>
+        )}
+      </ul>
+      {mode === "3d" && (
+        <button type="button" className={`btn btn-ghost ${styles.resetBtn}`} onClick={onReset}>
+          <WandIcon width={15} height={15} aria-hidden="true" /> Reset view
+        </button>
+      )}
+    </section>
   );
 }
 
@@ -261,6 +412,10 @@ export function GalaxyPage() {
   const [focusSpecies, setFocusSpecies] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<"3d" | "2d">("2d");
   const capability = use3DCapability();
+  const controlsRef = useRef<ElementRef<typeof OrbitControls>>(null);
+
+  const toggleFocus = (name: string) =>
+    setFocusSpecies((cur) => (cur === name ? null : name));
 
   useEffect(() => {
     if (capability !== "checking") setViewMode(capability === "supported" ? "3d" : "2d");
@@ -376,6 +531,7 @@ export function GalaxyPage() {
               <Galaxy3D
                 points={coloredPoints}
                 hoveredPoint={hoveredPoint}
+                controlsRef={controlsRef}
                 onHover={setHoveredId}
                 onSelect={setSelected}
               />
@@ -391,27 +547,17 @@ export function GalaxyPage() {
           )}
         </div>
 
-        <aside className="galaxy-side">
-          {selected && <SpecimenCard point={selected} onClose={() => setSelected(null)} />}
-          <div className="galaxy-legend">
-            <h3>Top species</h3>
-            <ul>
-              {legend.map((l) => (
-                <li key={l.label_name}>
-                  <button
-                    type="button"
-                    className={`galaxy-legend-item ${focusSpecies === l.label_name ? "active" : ""}`}
-                    onClick={() => setFocusSpecies((cur) => (cur === l.label_name ? null : l.label_name))}
-                    aria-pressed={focusSpecies === l.label_name}
-                  >
-                    <span className="galaxy-legend-dot" style={{ background: l.color }} aria-hidden="true" />
-                    <span className="galaxy-legend-name">{l.label_name}</span>
-                    <span className="galaxy-legend-count">{l.count}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
+        <aside className={styles.side}>
+          {selected && (
+            <SpecimenCard
+              point={selected}
+              isFocused={focusSpecies === selected.label_name}
+              onFocus={() => toggleFocus(selected.label_name)}
+              onClose={() => setSelected(null)}
+            />
+          )}
+          <Legend legend={legend} focusSpecies={focusSpecies} onToggle={toggleFocus} />
+          <ControlsPanel mode={viewMode} onReset={() => controlsRef.current?.reset()} />
         </aside>
       </div>
     </div>

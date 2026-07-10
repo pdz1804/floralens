@@ -221,3 +221,24 @@ export function ChevronIcon(props: IconProps) {
     </svg>
   );
 }
+
+// Tag — the Categories / species-catalog tab.
+export function TagIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <path d="M4 12.5V5.5A1.5 1.5 0 0 1 5.5 4h7a2 2 0 0 1 1.4.6l5.5 5.5a1.5 1.5 0 0 1 0 2.1l-6.7 6.7a1.5 1.5 0 0 1-2.1 0L4.6 13.9A2 2 0 0 1 4 12.5Z" />
+      <circle cx="8.5" cy="8.5" r="1.2" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+// CPU / chip — the device (GPU vs CPU) benchmark.
+export function CpuIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <rect x="6.5" y="6.5" width="11" height="11" rx="1.6" />
+      <rect x="9.5" y="9.5" width="5" height="5" rx="0.8" />
+      <path d="M9 3.5v3M15 3.5v3M9 17.5v3M15 17.5v3M3.5 9h3M3.5 15h3M17.5 9h3M17.5 15h3" />
+    </svg>
+  );
+}

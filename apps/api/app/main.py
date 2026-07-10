@@ -40,6 +40,7 @@ from apps.api.app import garden_service, memory_service
 from apps.api.app.env_loader import load_env_files
 from apps.api.app.assistant_service import build_floralens_registries, compile_naturalist
 from apps.api.app.auth import require_api_key
+from apps.api.app.categories_service import get_categories
 from apps.api.app.config import settings
 from apps.api.app.galaxy_service import get_galaxy_points
 from apps.api.app.memory_service import MemoryNotConfiguredError
@@ -272,6 +273,44 @@ def galaxy() -> GalaxyResponse:
             detail="embeddings cache not built yet; run the embedding pipeline first",
         ) from exc
     return GalaxyResponse(points=[GalaxyPointOut(**p) for p in points], count=len(points))
+
+
+class CategoryOut(BaseModel):
+    label: int
+    label_name: str
+    gallery_count: int
+    total_count: int
+    # A representative gallery specimen id — fetch its thumbnail via
+    # /api/specimen/{specimen_id}/image.
+    specimen_id: str
+    color: str = Field(..., description="Stable per-species hex color (matches the Galaxy tab)")
+
+
+class CategoriesResponse(BaseModel):
+    categories: list[CategoryOut]
+    count: int
+    total_specimens: int
+
+
+@app.get("/api/categories", response_model=CategoriesResponse)
+def categories() -> CategoriesResponse:
+    """The 102 dataset species, one entry each (gallery/total counts, a
+    representative gallery thumbnail id, and the same stable per-species color
+    as the Galaxy tab), sorted by name — for the Categories tab. Sourced from
+    the embeddings-cache metadata; built once and cached on first call."""
+    try:
+        entries = get_categories()
+    except FileNotFoundError as exc:
+        logger.error("categories source metadata unavailable: %s", exc)
+        raise HTTPException(
+            status_code=503,
+            detail="embeddings cache not built yet; run the embedding pipeline first",
+        ) from exc
+    return CategoriesResponse(
+        categories=[CategoryOut(**e) for e in entries],
+        count=len(entries),
+        total_specimens=sum(e["total_count"] for e in entries),
+    )
 
 
 @app.get("/api/specimen/{specimen_id}/image")

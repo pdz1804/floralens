@@ -5,21 +5,26 @@ import {
   getPipeline,
   MAX_UPLOAD_BYTES,
   preprocessPreview,
+  type DeviceBenchmark,
+  type DeviceTiming,
   type PipelineData,
   type PipelineMetrics,
   type PreprocessPreview,
+  type TrainingSummary,
 } from "@/lib/api";
 import {
   AlertIcon,
   CameraLeafIcon,
   ChartIcon,
   CheckIcon,
+  CpuIcon,
   DatabaseIcon,
   GaugeIcon,
   GridIcon,
   LayersIcon,
   WandIcon,
 } from "./icons";
+import styles from "./pipeline.module.css";
 
 /* ---- formatting helpers (defensive: fields vary / may be null) ------------- */
 const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
@@ -102,6 +107,298 @@ function MetricsTable({ val, test }: { val: PipelineMetrics; test: PipelineMetri
         </tbody>
       </table>
     </div>
+  );
+}
+
+/* ---- Model card (at a glance) ---------------------------------------------- */
+// Best-effort read of the compute device actually exercised, from whichever
+// benchmark stage ran. Honest fallback when no benchmark was written.
+function computeDevice(db: DeviceBenchmark | null | undefined): string {
+  if (!db) return "—";
+  if (db.embed?.cuda || db.train_epoch?.cuda) return "GPU · CUDA";
+  if (db.embed?.cpu || db.train_epoch?.cpu) return "CPU";
+  return "—";
+}
+
+function ModelCard({ data }: { data: PipelineData }) {
+  const { eval: ev, calibration, promotion } = data;
+  const decision = (promotion.decision ?? "").toUpperCase();
+  const promoted = decision === "PROMOTE" || decision === "PROMOTED";
+  const testR5 = ev.test?.["recall@5"];
+  const device = computeDevice(data.device_benchmark);
+
+  return (
+    <section className={styles.modelCard} data-testid="pipeline-model-card">
+      <div className={styles.modelCardHead}>
+        <span className="eyebrow">
+          <GridIcon width={14} height={14} /> At a glance
+        </span>
+        <h3>Model card</h3>
+        <p>
+          The active checkpoint in one row — what shipped, how well it scored on the held-out test
+          split, how honest its confidence is, and where it ran.
+        </p>
+      </div>
+      <div className={styles.tiles}>
+        <div className={styles.tile}>
+          <span className={styles.tileK}>Active model</span>
+          <span className={`${styles.tileV} ${styles.mono}`}>{data.model_version ?? "—"}</span>
+        </div>
+        <div className={styles.tile}>
+          <span className={styles.tileK}>Promotion</span>
+          {promotion.decision ? (
+            <span className={`${styles.miniBadge} ${promoted ? styles.go : styles.hold}`}>
+              {promoted ? <CheckIcon width={13} height={13} /> : <AlertIcon width={13} height={13} />}
+              {promotion.decision}
+            </span>
+          ) : (
+            <span className={styles.tileV}>—</span>
+          )}
+        </div>
+        <div className={`${styles.tile} ${styles.accent}`}>
+          <span className={styles.tileK}>Test Recall@5</span>
+          <span className={styles.tileV}>{pct(testR5)}</span>
+          <span className={styles.tileSub}>held-out split, one pass</span>
+        </div>
+        <div className={styles.tile}>
+          <span className={styles.tileK}>ECE (calibrated)</span>
+          <span className={styles.tileV}>{dec(calibration.ece_after, 4)}</span>
+          <span className={styles.tileSub}>lower is more honest</span>
+        </div>
+        <div className={styles.tile}>
+          <span className={styles.tileK}>Compute</span>
+          <span className={styles.tileV}>{device}</span>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ---- Device benchmark (GPU vs CPU) ----------------------------------------- */
+// One labelled comparison of the same workload on cpu vs cuda. Bars scale to the
+// larger of the two timings so the gap reads instantly; renders only the devices
+// actually present. `betterHigh` flips which end of the scale is the good one.
+function CompareBars({
+  cpu,
+  cuda,
+  value,
+  format,
+  betterHigh,
+}: {
+  cpu?: DeviceTiming;
+  cuda?: DeviceTiming;
+  value: (t: DeviceTiming) => number | undefined;
+  format: (v: number | undefined) => string;
+  betterHigh: boolean;
+}) {
+  const rows: { key: "cpu" | "cuda"; label: string; v: number | undefined }[] = [];
+  if (cpu) rows.push({ key: "cpu", label: "CPU", v: value(cpu) });
+  if (cuda) rows.push({ key: "cuda", label: "GPU", v: value(cuda) });
+  const nums = rows.map((r) => r.v).filter(isNum) as number[];
+  if (nums.length === 0) return <p className="muted-note">No timing recorded.</p>;
+  const max = Math.max(...nums, 1e-9);
+  const best = betterHigh ? Math.max(...nums) : Math.min(...nums);
+
+  return (
+    <div className={styles.bars}>
+      {rows.map((r) => {
+        const w = isNum(r.v) ? Math.max(4, (r.v / max) * 100) : 4;
+        const isBest = isNum(r.v) && r.v === best;
+        return (
+          <div className={styles.barRow} key={r.key}>
+            <span className={styles.barLabel}>{r.label}</span>
+            <span className={styles.barTrack}>
+              <span
+                className={`${styles.barFill} ${isBest ? styles.cuda : styles.cpu}`}
+                style={{ width: `${w}%` }}
+              />
+            </span>
+            <span className={styles.barVal}>{format(r.v)}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function DeviceBenchmarkSection({ db }: { db: DeviceBenchmark }) {
+  const hasEmbed = !!(db.embed?.cpu || db.embed?.cuda);
+  const hasTrain = !!(db.train_epoch?.cpu || db.train_epoch?.cuda);
+  if (!hasEmbed && !hasTrain) return null;
+
+  const embedSpeedup = db.embed_speedup_cuda_over_cpu;
+  const trainSpeedup = db.train_epoch_speedup_cuda_over_cpu;
+  const trainNote = db.train_epoch?.cuda?.note ?? db.train_epoch?.cpu?.note;
+  const ips = (t: DeviceTiming) => t.images_per_second;
+  const secs = (t: DeviceTiming) => t.elapsed_seconds;
+
+  return (
+    <section className={styles.section} data-testid="pipeline-device-benchmark">
+      <div className={styles.head}>
+        <span className="eyebrow">
+          <CpuIcon width={14} height={14} /> Compute benchmark
+        </span>
+        <h3>What the GPU actually buys us.</h3>
+        <p>
+          The same work, timed on CPU and on CUDA{db.batch_size ? <> at batch size {int(db.batch_size)}</> : null}.
+          These are measured elapsed times from a real run — not vendor figures.
+        </p>
+      </div>
+
+      <div className={styles.benchGrid}>
+        {hasEmbed && (
+          <article className={styles.benchCard}>
+            <div className={styles.benchHead}>
+              <span className={styles.benchIco} aria-hidden="true">
+                <LayersIcon width={18} height={18} />
+              </span>
+              <h4 className={styles.benchTitle}>Embedding throughput</h4>
+            </div>
+            <p className={styles.benchUnit}>images encoded per second — higher is better</p>
+            {isNum(embedSpeedup) && (
+              <span className={styles.speedup}>
+                <em>{embedSpeedup.toFixed(2)}×</em> faster on GPU
+              </span>
+            )}
+            <CompareBars
+              cpu={db.embed?.cpu}
+              cuda={db.embed?.cuda}
+              value={ips}
+              format={(v) => (isNum(v) ? `${v.toFixed(2)} img/s` : "—")}
+              betterHigh
+            />
+          </article>
+        )}
+
+        {hasTrain && (
+          <article className={styles.benchCard}>
+            <div className={styles.benchHead}>
+              <span className={styles.benchIco} aria-hidden="true">
+                <GaugeIcon width={18} height={18} />
+              </span>
+              <h4 className={styles.benchTitle}>Training epoch</h4>
+            </div>
+            <p className={styles.benchUnit}>wall-clock seconds for one epoch — lower is better</p>
+            {isNum(trainSpeedup) && (
+              <span className={styles.speedup}>
+                <em>{trainSpeedup.toFixed(2)}×</em> faster on GPU
+              </span>
+            )}
+            <CompareBars
+              cpu={db.train_epoch?.cpu}
+              cuda={db.train_epoch?.cuda}
+              value={secs}
+              format={(v) => (isNum(v) ? `${v.toFixed(1)} s` : "—")}
+              betterHigh={false}
+            />
+            {trainNote && <p className={styles.benchNote}>{trainNote}</p>}
+          </article>
+        )}
+      </div>
+      {db.generated_at && <p className={styles.benchStamp}>measured {db.generated_at}</p>}
+    </section>
+  );
+}
+
+/* ---- Training / hyperparameter sweep --------------------------------------- */
+const CONFIG_ROWS: { key: string; label: string }[] = [
+  { key: "loss", label: "Loss" },
+  { key: "lr", label: "Learning rate" },
+  { key: "head_hidden_dim", label: "Head hidden dim" },
+  { key: "output_dim", label: "Output dim" },
+  { key: "margin", label: "ArcFace margin" },
+  { key: "scale", label: "ArcFace scale" },
+  { key: "batch_size", label: "Batch size" },
+  { key: "max_epochs", label: "Max epochs" },
+];
+
+const WINNER_METRIC_ROWS: { key: string; label: string; kind: "pct" | "dec" }[] = [
+  { key: "recall@1", label: "Recall@1", kind: "pct" },
+  { key: "recall@5", label: "Recall@5", kind: "pct" },
+  { key: "recall@10", label: "Recall@10", kind: "pct" },
+  { key: "map@5", label: "mAP@5", kind: "pct" },
+  { key: "mrr", label: "MRR", kind: "pct" },
+  { key: "silhouette", label: "Silhouette", kind: "dec" },
+];
+
+function fmtConfig(key: string, v: number | string | undefined): string {
+  if (v === undefined || v === null) return "—";
+  if (typeof v === "string") return v;
+  if (!Number.isFinite(v)) return "—";
+  // Learning-rate-like magnitudes read best in exponential form.
+  if ((key === "lr" || key === "learning_rate") && v !== 0 && Math.abs(v) < 0.01) {
+    return v.toExponential(1);
+  }
+  return Number.isInteger(v) ? int(v) : dec(v, 3);
+}
+
+function TrainingSweep({ training }: { training: TrainingSummary }) {
+  const cfg = training.winner_config ?? {};
+  const metrics = training.winner_val_metrics ?? {};
+  const cfgRows = CONFIG_ROWS.filter((r) => r.key in cfg);
+  const metricRows = WINNER_METRIC_ROWS.filter((r) => r.key in metrics);
+  const hasWinner = training.winner_run_id || cfgRows.length > 0 || metricRows.length > 0;
+  if (!hasWinner) return null;
+
+  return (
+    <section className={styles.section} data-testid="pipeline-training">
+      <div className={styles.head}>
+        <span className="eyebrow">
+          <WandIcon width={14} height={14} /> Hyperparameter sweep
+        </span>
+        <h3>The winning run, and how it was chosen.</h3>
+        <p>
+          The ArcFace head was swept across configurations; the checkpoint below won on validation
+          and is the one served today. Every value is read from the sweep summary.
+        </p>
+      </div>
+
+      <div className={styles.sweepMeta}>
+        {training.winner_run_id && (
+          <span className={styles.runChip}>
+            <strong>Winner</strong> <code>{training.winner_run_id}</code>
+          </span>
+        )}
+        {isNum(training.num_runs) && (
+          <span className={styles.runChip}>
+            {int(training.num_runs)} runs compared
+          </span>
+        )}
+        {training.backbone && (
+          <span className={styles.runChip}>
+            backbone <code>{training.backbone}</code>
+          </span>
+        )}
+      </div>
+
+      {cfgRows.length > 0 && (
+        <>
+          <p className={styles.groupLabel}>Winning configuration</p>
+          <div className={styles.tiles}>
+            {cfgRows.map((r) => (
+              <div className={styles.tile} key={r.key}>
+                <span className={styles.tileK}>{r.label}</span>
+                <span className={`${styles.tileV} ${styles.mono}`}>{fmtConfig(r.key, cfg[r.key])}</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {metricRows.length > 0 && (
+        <>
+          <p className={styles.groupLabel}>Validation metrics</p>
+          <div className={styles.tiles}>
+            {metricRows.map((r) => (
+              <div className={`${styles.tile} ${r.key === "recall@5" ? styles.accent : ""}`} key={r.key}>
+                <span className={styles.tileK}>{r.label}</span>
+                <span className={styles.tileV}>{fmt(metrics[r.key], r.kind)}</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </section>
   );
 }
 
@@ -577,6 +874,8 @@ export function PipelinePage() {
         </p>
       </section>
 
+      <ModelCard data={data} />
+
       <TrainingNarrative data={data} />
 
       <section className="flow-section" aria-labelledby="flow-h">
@@ -592,6 +891,8 @@ export function PipelinePage() {
         </div>
         <FlowDiagram data={data} />
       </section>
+
+      {data.training && <TrainingSweep training={data.training} />}
 
       <div className="stages">
         {/* 1 — Dataset */}
@@ -759,6 +1060,8 @@ export function PipelinePage() {
           )}
         </Stage>
       </div>
+
+      {data.device_benchmark && <DeviceBenchmarkSection db={data.device_benchmark} />}
     </div>
   );
 }

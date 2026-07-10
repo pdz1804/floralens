@@ -699,7 +699,10 @@ input[type="text"]:focus {
 @media (max-width: 720px) {
   .topbar { flex-wrap: wrap; }
   .topbar .spacer { display: none; }
-  .tabs { order: 3; width: 100%; justify-content: center; }
+  /* Wrap the 7-tab pill bar onto multiple rows on narrow screens so it never
+     forces horizontal page overflow (a non-wrapping row of 7 tabs exceeds a
+     ~390px viewport). */
+  .tabs { order: 3; width: 100%; justify-content: center; flex-wrap: wrap; }
   .topbar-actions { margin-left: auto; }
 }
 

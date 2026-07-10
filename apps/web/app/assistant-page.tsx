@@ -2,7 +2,21 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { extractCitations, streamAssistant, type AssistantEvent } from "@/lib/api";
-import { AlertIcon, BloomIcon, SendIcon, SparkleIcon } from "./icons";
+import { AlertIcon, BloomIcon, LinkIcon, SendIcon, SparkleIcon } from "./icons";
+import styles from "./assistant.module.css";
+
+/** Split a citation URL into a short hostname + trailing path for a readable
+ * chip label. Falls back to the raw string if it isn't a parseable URL. */
+function formatSource(url: string): { host: string; path: string } {
+  try {
+    const u = new URL(url);
+    const host = u.hostname.replace(/^www\./, "");
+    const path = (u.pathname + u.search).replace(/\/$/, "");
+    return { host, path: path === "/" ? "" : path };
+  } catch {
+    return { host: url, path: "" };
+  }
+}
 
 type MessageStatus = "streaming" | "done" | "error";
 
@@ -130,21 +144,25 @@ export function AssistantPage() {
         </p>
       </section>
 
-      <div className="assistant-layout card">
-        <div className="assistant-messages" ref={scrollRef} data-testid="assistant-messages">
+      <div className={styles.chat}>
+        <div className={styles.stream} ref={scrollRef} data-testid="assistant-messages">
           {messages.length === 0 && (
-            <div className="state">
-              <span className="state-ico" aria-hidden="true">
-                <SparkleIcon width={26} height={26} />
+            <div className={styles.empty}>
+              <span className={styles.emptyIco} aria-hidden="true">
+                <SparkleIcon width={28} height={28} />
               </span>
-              <span className="state-title">Ask the naturalist anything</span>
-              <p>Flower identification, care tips, or what&rsquo;s in the FloraLens gallery.</p>
-              <div className="assistant-suggestions">
+              <span className={styles.emptyTitle}>Ask the naturalist anything</span>
+              <p className={styles.emptyText}>
+                Flower identification, care tips, or what&rsquo;s in the FloraLens gallery — every
+                web-sourced fact comes with citations.
+              </p>
+              <span className={styles.suggestLabel}>Try asking</span>
+              <div className={styles.suggestions}>
                 {SUGGESTIONS.map((s) => (
                   <button
                     type="button"
                     key={s}
-                    className="btn btn-ghost assistant-suggestion"
+                    className={styles.suggestion}
                     onClick={() => void send(s)}
                     disabled={sending}
                   >
@@ -155,45 +173,84 @@ export function AssistantPage() {
             </div>
           )}
 
-          {messages.map((m) => (
-            <div className={`assistant-msg assistant-msg-${m.role}`} key={m.id}>
-              <span className="assistant-msg-role">{m.role === "user" ? "You" : "Naturalist"}</span>
-              {m.role === "assistant" && m.status === "streaming" && !m.text ? (
-                <div className="assistant-thinking" aria-busy="true" aria-label="The naturalist is thinking">
-                  <span className="spin" aria-hidden="true" />
-                  <span>{m.trace[m.trace.length - 1] ?? "Thinking…"}</span>
-                </div>
-              ) : (
-                <>
-                  <p
-                    className={`assistant-answer ${m.status === "error" ? "assistant-answer-error" : ""}`}
-                    data-testid={m.role === "assistant" ? "assistant-answer" : undefined}
-                  >
-                    {m.status === "error" && (
-                      <AlertIcon width={14} height={14} aria-hidden="true" />
-                    )}{" "}
-                    {m.text}
-                  </p>
-                  {m.role === "assistant" && m.status === "done" && extractCitations(m.text).length > 0 && (
-                    <ul className="assistant-citations" data-testid="assistant-citations">
-                      {extractCitations(m.text).map((url) => (
-                        <li key={url}>
-                          <a href={url} target="_blank" rel="noopener noreferrer">
-                            {url}
-                          </a>
-                        </li>
-                      ))}
-                    </ul>
+          {messages.map((m) => {
+            const isBot = m.role === "assistant";
+            const streaming = isBot && m.status === "streaming";
+            const citations = isBot && m.status === "done" ? extractCitations(m.text) : [];
+            return (
+              <div className={`${styles.row} ${isBot ? styles.rowBot : styles.rowUser}`} key={m.id}>
+                <span
+                  className={`${styles.avatar} ${isBot ? styles.avatarBot : styles.avatarUser}`}
+                  aria-hidden="true"
+                >
+                  {isBot ? <BloomIcon width={19} height={19} /> : "You"}
+                </span>
+                <div className={styles.col}>
+                  <span className={styles.role}>{isBot ? "Naturalist" : "You"}</span>
+                  {streaming && !m.text ? (
+                    <div
+                      className={styles.thinking}
+                      aria-busy="true"
+                      aria-label="The naturalist is thinking"
+                    >
+                      <span className={styles.dots} aria-hidden="true">
+                        <span />
+                        <span />
+                        <span />
+                      </span>
+                      <span className={styles.thinkingText}>
+                        {m.trace[m.trace.length - 1] ?? "Thinking…"}
+                      </span>
+                    </div>
+                  ) : (
+                    <>
+                      <p
+                        className={`${styles.bubble} ${m.status === "error" ? styles.bubbleError : ""}`}
+                        data-testid={isBot ? "assistant-answer" : undefined}
+                      >
+                        {m.status === "error" && <AlertIcon width={15} height={15} aria-hidden="true" />}
+                        <span>{m.text}</span>
+                        {streaming && m.text && <span className={styles.caret} aria-hidden="true" />}
+                      </p>
+                      {citations.length > 0 && (
+                        <>
+                          <span className={styles.sourcesLabel}>
+                            <LinkIcon width={12} height={12} aria-hidden="true" /> Sources
+                          </span>
+                          <ul className={styles.sources} data-testid="assistant-citations">
+                            {citations.map((url, i) => {
+                              const { host, path } = formatSource(url);
+                              return (
+                                <li className={styles.sourceItem} key={url}>
+                                  <a
+                                    className={styles.sourceLink}
+                                    href={url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    title={url}
+                                  >
+                                    <span className={styles.sourceIndex}>{i + 1}</span>
+                                    <span className={styles.sourceHost}>{host}</span>
+                                    {path && <span className={styles.sourcePath}>{path}</span>}
+                                  </a>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        </>
+                      )}
+                    </>
                   )}
-                </>
-              )}
-            </div>
-          ))}
+                </div>
+              </div>
+            );
+          })}
         </div>
 
-        <form className="assistant-composer" onSubmit={onSubmit}>
+        <form className={styles.composer} onSubmit={onSubmit}>
           <input
             type="text"
+            className={styles.input}
             placeholder="Ask about a flower, its care, or the gallery…"
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -203,7 +260,7 @@ export function AssistantPage() {
           />
           <button
             type="submit"
-            className="btn btn-primary"
+            className={`btn btn-primary ${styles.send}`}
             data-testid="assistant-send"
             disabled={sending || !input.trim()}
           >
@@ -212,7 +269,7 @@ export function AssistantPage() {
           </button>
         </form>
         {error && (
-          <p className="err assistant-error" data-testid="error">
+          <p className={`err ${styles.errorBar}`} data-testid="error">
             <AlertIcon width={16} height={16} aria-hidden="true" />
             <span>{error}</span>
           </p>

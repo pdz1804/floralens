@@ -25,6 +25,42 @@ export type ReliabilityBin = {
   count: number;
 };
 
+// Per-device timing block in the device benchmark (one for "cpu", one for
+// "cuda"). Extra keys (backbone, num_images, notes, …) vary by stage.
+export type DeviceTiming = {
+  requested_device?: string;
+  resolved_device?: string;
+  device?: string;
+  backbone?: string;
+  num_images?: number;
+  elapsed_seconds: number;
+  images_per_second?: number;
+  note?: string;
+  [key: string]: string | number | undefined;
+};
+
+// GPU-vs-CPU benchmark (GET /api/pipeline → device_benchmark). Null when the
+// report hasn't been generated. Additive — older responses omit this key.
+export type DeviceBenchmark = {
+  batch_size: number | null;
+  embed: { cpu?: DeviceTiming; cuda?: DeviceTiming } | null;
+  embed_speedup_cuda_over_cpu: number | null;
+  train_epoch: { cpu?: DeviceTiming; cuda?: DeviceTiming } | null;
+  train_epoch_speedup_cuda_over_cpu: number | null;
+  generated_at: string | null;
+};
+
+// Finetuning hyperparameter sweep summary (GET /api/pipeline → training).
+// Null when the sweep summary hasn't been generated. Additive.
+export type TrainingSummary = {
+  backbone: string | null;
+  num_runs: number | null;
+  winner_run_id: string | null;
+  winner_config: Record<string, number | string> | null;
+  winner_val_metrics: Record<string, number> | null;
+  generated_at: string | null;
+};
+
 export type PipelineData = {
   dataset: { name: string; total: number; classes: number | null; splits: Record<string, number> };
   preprocessing: { name: string; description: string }[];
@@ -32,6 +68,9 @@ export type PipelineData = {
   eval: { val: PipelineMetrics; test: PipelineMetrics };
   calibration: { ece_before: number | null; ece_after: number | null; bands: ReliabilityBin[] | null };
   promotion: { decision: string | null; reason: string | null };
+  // Additive (kept optional so older backend responses still type-check).
+  device_benchmark?: DeviceBenchmark | null;
+  training?: TrainingSummary | null;
   model_version: string;
 };
 
@@ -131,6 +170,26 @@ export type GalaxyData = { points: GalaxyPoint[]; count: number };
 export async function getGalaxy(signal?: AbortSignal): Promise<GalaxyData> {
   const r = await fetch("/api/galaxy", { cache: "no-store", signal });
   if (!r.ok) throw new Error(`galaxy unavailable (${r.status})`);
+  return r.json();
+}
+
+// ---- Species categories (GET /api/categories) ---------------------------------
+export type Category = {
+  label: number;
+  label_name: string;
+  gallery_count: number;
+  total_count: number;
+  specimen_id: string; // representative gallery specimen (thumbnail via /api/specimen/{id}/image)
+  color: string; // stable per-species hex color (matches the Galaxy tab)
+};
+export type CategoriesData = { categories: Category[]; count: number; total_specimens: number };
+
+// The 102 dataset species, one entry each with counts, a representative
+// thumbnail specimen id, and the Galaxy-matching color — for the Categories
+// tab. Sourced from the embeddings-cache metadata; cheap, no re-embedding.
+export async function getCategories(signal?: AbortSignal): Promise<CategoriesData> {
+  const r = await fetch("/api/categories", { cache: "no-store", signal });
+  if (!r.ok) throw new Error(`categories unavailable (${r.status})`);
   return r.json();
 }
 
