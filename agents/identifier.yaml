@@ -1,0 +1,18 @@
+# FloraLens identifier sub-agent — delegated to by `naturalist` (see
+# naturalist.yaml's sub_agents) when the user wants a flower narrowed to a
+# species from a description or observed features. Grounds identifications in
+# the FloraLens gallery via the FloraLens-specific `gallery_facts` tool
+# (apps/api/app/assistant_service.py), which reads the gallery's curated
+# species metadata read-only. Exposed to the supervisor as `ask_identifier`.
+id: identifier
+version: 1
+model:
+  provider: openai
+  name: gpt-4o-mini
+  temperature: 0.2
+prompt_ref: prompts/identifier.md
+tools:
+  - gallery_facts
+limits:
+  max_steps: 4
+  wall_clock_s: 30

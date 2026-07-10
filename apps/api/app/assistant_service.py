@@ -114,9 +114,16 @@ def build_floralens_registries() -> Registries:
 
 
 def load_naturalist_manifests() -> dict[str, AgentManifest]:
-    """Load the naturalist supervisor + its care_advisor sub-agent manifest."""
+    """Load the naturalist supervisor + its three sub-agent manifests.
+
+    The supervisor (naturalist) delegates to the four-role team (PRD D2):
+    `identifier` (species ID), `researcher` (cited botanical facts), and
+    `care_advisor` (FloraLens gallery facts). Each is exposed to the supervisor
+    as an `ask_<id>` tool by `compile_naturalist`."""
     return {
         "naturalist": load_manifest_file(_AGENTS_DIR / "naturalist.yaml"),
+        "identifier": load_manifest_file(_AGENTS_DIR / "identifier.yaml"),
+        "researcher": load_manifest_file(_AGENTS_DIR / "researcher.yaml"),
         "care_advisor": load_manifest_file(_AGENTS_DIR / "care_advisor.yaml"),
     }
 
@@ -124,8 +131,10 @@ def load_naturalist_manifests() -> dict[str, AgentManifest]:
 def compile_naturalist(
     registries: Registries, checkpointer: CheckpointerArg = None
 ) -> CompiledAgent:
-    """Resolve + compile the naturalist manifest (with care_advisor as a
-    sub-agent tool, `ask_care_advisor`) against the given registries.
+    """Resolve + compile the naturalist manifest (with identifier, researcher,
+    and care_advisor as sub-agent tools `ask_identifier` / `ask_researcher` /
+    `ask_care_advisor`, plus its runtime output guardrails) against the given
+    registries.
 
     `checkpointer` opts the compiled naturalist into agent_core's durable
     short-term thread memory (PRD Phase 7 / E3): pass a saver built via
@@ -140,6 +149,10 @@ def compile_naturalist(
     return compile_agent(
         manifests["naturalist"],
         registries,
-        agents={"care_advisor": manifests["care_advisor"]},
+        agents={
+            "identifier": manifests["identifier"],
+            "researcher": manifests["researcher"],
+            "care_advisor": manifests["care_advisor"],
+        },
         checkpointer=checkpointer,
     )

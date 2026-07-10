@@ -1,0 +1,16 @@
+# FloraLens researcher sub-agent — delegated to by `naturalist` (see
+# naturalist.yaml's sub_agents) for botanical/horticultural facts that need an
+# external source. Uses the shared `web_search` tool and must cite at least one
+# source URL. Exposed to the supervisor as `ask_researcher`.
+id: researcher
+version: 1
+model:
+  provider: openai
+  name: gpt-4o-mini
+  temperature: 0.2
+prompt_ref: prompts/researcher.md
+tools:
+  - web_search
+limits:
+  max_steps: 4
+  wall_clock_s: 30

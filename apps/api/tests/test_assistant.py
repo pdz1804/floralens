@@ -9,10 +9,12 @@ on-disk embeddings cache (skipped if it hasn't been built yet).
 """
 import asyncio
 import json
+import re
 from pathlib import Path
 
 import pytest
 from agent_core import ModelProvider, ModelResponse, resolve_manifest, sqlite_checkpointer
+from agent_core.errors import UnknownReferenceError
 from fastapi.testclient import TestClient
 
 from apps.api.app.assistant_service import (
@@ -24,6 +26,12 @@ from apps.api.app.assistant_service import (
 from apps.api.app.main import app, assistant_registries
 
 EMBEDDINGS_CACHE = Path("ml/data/embeddings_cache/metadata.json")
+
+# The naturalist supervisor's three sub-agents (PRD D2 four-role team) are each
+# exposed to it as an `ask_<id>` delegation tool by `compile_naturalist`.
+_EXPECTED_SUBAGENT_TOOLS = {"ask_identifier", "ask_researcher", "ask_care_advisor"}
+# The runtime-enforced output guardrails attached to the naturalist manifest.
+_EXPECTED_GUARDRAILS = ["no_medical_dosage", "educational_disclaimer", "no_secret_exfil"]
 
 client = TestClient(app)
 
@@ -48,12 +56,96 @@ assistant_registries.models.register("openai", _FakeOpenAI(), overwrite=True)
 
 def test_naturalist_manifests_resolve():
     manifests = load_naturalist_manifests()
-    resolve_manifest(
-        manifests["naturalist"], assistant_registries, known_agents={"care_advisor"}
+    known = set(manifests)  # naturalist + identifier + researcher + care_advisor
+    for manifest in manifests.values():
+        # Resolves the model provider, prompt, tools, sub_agents AND the
+        # supervisor's guardrails against the real assistant registries.
+        resolve_manifest(manifest, assistant_registries, known_agents=known)
+
+
+def test_naturalist_manifest_declares_guardrails():
+    """The supervisor manifest carries the three built-in guardrails by their
+    exact registered names, and each resolves against the registries."""
+    manifests = load_naturalist_manifests()
+    assert manifests["naturalist"].guardrails == _EXPECTED_GUARDRAILS
+    for name in _EXPECTED_GUARDRAILS:
+        assert assistant_registries.guardrails.has(name)
+
+
+def test_compile_naturalist_wires_all_three_subagents_and_guardrails():
+    """compile_naturalist exposes each sub-agent as an `ask_<id>` tool and
+    attaches the configured guardrails to the compiled supervisor."""
+    agent = compile_naturalist(build_floralens_registries())
+    assert _EXPECTED_SUBAGENT_TOOLS <= set(agent._tools)
+    attached = [g.name for g in agent._guardrails]
+    assert attached == _EXPECTED_GUARDRAILS
+
+
+def test_unknown_guardrail_name_fails_fast():
+    """Sanity: an unregistered guardrail name is rejected at compile time
+    (fail-fast, exactly like an unknown tool/prompt) rather than ignored."""
+    manifests = load_naturalist_manifests()
+    naturalist = manifests["naturalist"].model_copy(
+        update={"guardrails": ["no_such_guardrail"]}
     )
-    resolve_manifest(
-        manifests["care_advisor"], assistant_registries, known_agents={"care_advisor"}
-    )
+    registries = build_floralens_registries()
+    with pytest.raises(UnknownReferenceError):
+        resolve_manifest(naturalist, registries, known_agents=set(manifests))
+
+
+class _FixedAnswerModel(ModelProvider):
+    """Returns a fixed answer with no tool calls, so the supervisor emits it in
+    one step and the manifest's guardrails run over exactly this text."""
+
+    provider = "openai"
+
+    def __init__(self, text: str) -> None:
+        self._text = text
+
+    async def complete(self, messages, tools=None, **cfg):
+        return ModelResponse(text=self._text, usage={"input_tokens": 1, "output_tokens": 1})
+
+
+def _run_naturalist_with_answer(raw_answer: str) -> str:
+    """Compile the naturalist against fresh registries whose model returns
+    ``raw_answer`` verbatim, run it once offline, and return the guardrailed
+    final answer."""
+    registries = build_floralens_registries()
+    registries.models.register("openai", _FixedAnswerModel(raw_answer), overwrite=True)
+    agent = compile_naturalist(registries)
+
+    async def _drive():
+        try:
+            return await agent.arun("tell me about this plant")
+        finally:
+            await agent.aclose()
+
+    return asyncio.run(_drive()).answer
+
+
+def test_guardrail_blocks_medical_dosage_in_final_answer():
+    """A raw answer stating a specific dose is replaced by the no_medical_dosage
+    refusal — the concrete dosage never survives to the user."""
+    answer = _run_naturalist_with_answer("Give the plant 500 mg of aspirin daily.")
+    assert "500 mg" not in answer
+    assert "can't provide a specific medical dosage" in answer.lower()
+
+
+def test_guardrail_redacts_secret_in_final_answer():
+    """A leaked API key in the raw answer is redacted by no_secret_exfil before
+    it reaches the user."""
+    leaked = "sk-abcdef0123456789ABCDEF"
+    answer = _run_naturalist_with_answer(f"Sure, the key is {leaked} — enjoy!")
+    assert leaked not in answer
+    assert "[REDACTED]" in answer
+
+
+def test_guardrail_appends_educational_disclaimer():
+    """A dosage/secret-free answer passes through but gains the educational
+    disclaimer appended by educational_disclaimer."""
+    answer = _run_naturalist_with_answer("Roses like full sun and well-drained soil.")
+    assert "Roses like full sun" in answer
+    assert "educational purposes only" in answer.lower()
 
 
 def test_assistant_streams_answer_offline():
@@ -131,7 +223,10 @@ class _CountingModel(ModelProvider):
 
 
 def _messages_seen(answer: str) -> int:
-    return int(answer.split("=", 1)[1])
+    # Extract just the integer: the naturalist manifest's educational_disclaimer
+    # guardrail appends a note to the final answer, so a plain split("=") would
+    # capture that trailing text too.
+    return int(re.search(r"messages_seen=(\d+)", answer).group(1))
 
 
 def _compile_counting_naturalist(checkpointer):

@@ -1,8 +1,10 @@
-# FloraLens naturalist supervisor (PRD P5-6 §9) — compiled by the shared
-# AgentForge Unified Agent Core (agent_core.compile_agent). Answers flower
-# identification / general botanical questions via `web_search` (citing
-# sources) and delegates gallery-specific questions to the `care_advisor`
-# sub-agent (agents-as-tools, exposed to this manifest as `ask_care_advisor`).
+# FloraLens naturalist supervisor (PRD P5-6 §9, D2 four-role team) — compiled by
+# the shared AgentForge Unified Agent Core (agent_core.compile_agent). It routes
+# each request to one of three sub-agents (agents-as-tools): `identifier`
+# (species ID from features, exposed as `ask_identifier`), `researcher`
+# (cited botanical facts, `ask_researcher`), and `care_advisor` (FloraLens
+# gallery facts, `ask_care_advisor`). It keeps `web_search` as a direct fallback
+# for simple general questions.
 id: naturalist
 version: 1
 model:
@@ -24,7 +26,18 @@ memory:
   scope: user
   namespace: floralens
 sub_agents:
+  - identifier
+  - researcher
   - care_advisor
+# Runtime-enforced output guardrails (agent_core built-ins, run in listed order
+# over the supervisor's FINAL answer — not prompt text). `no_medical_dosage`
+# refuses answers stating a specific drug dose; `educational_disclaimer` appends
+# a short "informational, not professional advice" note when missing; and
+# `no_secret_exfil` redacts any leaked API key / token / private key.
+guardrails:
+  - no_medical_dosage
+  - educational_disclaimer
+  - no_secret_exfil
 limits:
   max_steps: 6
   wall_clock_s: 60
