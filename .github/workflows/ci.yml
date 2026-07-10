@@ -115,3 +115,143 @@ jobs:
 
       - name: Build (Next.js production build must succeed)
         run: npm run build
+
+  web-e2e:
+    name: web-e2e
+    # HONEST gate. Unlike AgentForge (which runs fully offline via the echo
+    # provider), FloraLens's runtime UI flows depend on artifacts that are
+    # gitignored and secrets that are unset on CI runners, so they CANNOT run
+    # here and are NOT silently marked green as if they had:
+    #   - ml/data/embeddings_cache/  -> POST /api/search, GET /api/galaxy   [gitignored]
+    #   - ml/data/raw/flowers102_hf/ -> search query image + specimen/garden thumbnails [gitignored]
+    #   - OPENAI_API_KEY             -> POST /api/assistant naturalist agent [secret, unset]
+    # Merely importing the API pulls the heavy ML backbone stack too, so even a
+    # /health smoke would need that full environment. This job therefore detects
+    # the artifacts+key; when absent (the CI reality) it prints an explicit SKIP
+    # notice and runs nothing further. On a runner that HAS the embeddings cache
+    # + OPENAI_API_KEY (e.g. a provisioned self-hosted box) the same job builds
+    # the web app, starts the API + web, runs the Playwright suite, and fires a
+    # /health p95 load smoke. The always-on offline gate is the `web-build` job.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Detect model artifacts + assistant key (gitignored/secret -- absent in CI)
+        id: gate
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          if [ -f ml/data/embeddings_cache/metadata.json ] && [ -n "${OPENAI_API_KEY:-}" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: SKIPPED -- model-dependent e2e cannot run in CI (explicit, not a silent pass)
+        if: steps.gate.outputs.present != 'true'
+        run: |
+          echo "::warning title=FloraLens web-e2e skipped::runtime Playwright e2e needs gitignored artifacts / secret keys absent on CI runners"
+          echo "SKIPPED: FloraLens runtime Playwright e2e did NOT run in CI."
+          echo "It requires artifacts/keys that are gitignored or secret and absent here:"
+          echo "  - ml/data/embeddings_cache/  (POST /api/search, GET /api/galaxy)          [gitignored]"
+          echo "  - ml/data/raw/flowers102_hf/ (search query image, specimen + garden thumbs) [gitignored]"
+          echo "  - OPENAI_API_KEY             (POST /api/assistant naturalist agent)        [secret, unset]"
+          echo "Specs not run: flower-search, galaxy-verify, garden-capture, assistant-capture,"
+          echo "  and theme-tabs-about (its Pipeline tab reads the live /api/pipeline endpoint)."
+          echo "The offline gate that DOES run in CI is the 'web-build' job (Next.js production build)."
+
+      # --- The steps below run ONLY on a runner with the cache + key present. ---
+      # They never execute in CI (present=false), so they cannot make CI flaky;
+      # they exist so the gate is real wherever the full environment is provided.
+      - uses: actions/setup-python@v5
+        if: steps.gate.outputs.present == 'true'
+        with:
+          python-version: "3.11"
+
+      - name: Install Python deps + editable agent-core (full ML environment)
+        if: steps.gate.outputs.present == 'true'
+        run: |
+          # Mirror the proven install ordering from the python-tests job (the
+          # datasets/mlflow pyarrow conflict forces mlflow last), then add the
+          # sibling editable agent-core the assistant service imports.
+          python -m pip install --upgrade pip
+          pip install fastapi==0.115.6 "uvicorn[standard]==0.34.0" pydantic==2.10.5 \
+            python-multipart==0.0.20 numpy==1.26.4 pillow==11.1.0 \
+            scikit-learn==1.6.1 imagehash==4.3.1 requests==2.32.3 datasets==5.0.0 \
+            opencv-python-headless==4.10.0.84 transformers==5.13.0
+          pip install mlflow==2.19.0
+          pip install torch==2.7.1 torchvision==0.22.1 --index-url https://download.pytorch.org/whl/cpu
+          pip install open-clip-torch==2.31.0
+          if [ -d ../agentforge/packages/agent-core ]; then
+            pip install -e "../agentforge/packages/agent-core[openai]"
+          fi
+
+      - uses: actions/setup-node@v4
+        if: steps.gate.outputs.present == 'true'
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install web dependencies
+        if: steps.gate.outputs.present == 'true'
+        working-directory: apps/web
+        run: npm ci
+
+      - name: Install Playwright browser (chromium only)
+        if: steps.gate.outputs.present == 'true'
+        working-directory: apps/web
+        run: npx playwright install --with-deps chromium
+
+      - name: Start API and wait for /health
+        if: steps.gate.outputs.present == 'true'
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          nohup uvicorn apps.api.app.main:app --host 127.0.0.1 --port 8100 > api.log 2>&1 &
+          echo $! > api.pid
+          for i in $(seq 1 120); do
+            if curl -fsS http://127.0.0.1:8100/health > /dev/null 2>&1; then
+              echo "API healthy after ${i}s"; exit 0
+            fi
+            sleep 1
+          done
+          echo "API did not become healthy within 120s"; cat api.log; exit 1
+
+      - name: Build web (Next.js production build)
+        if: steps.gate.outputs.present == 'true'
+        working-directory: apps/web
+        run: npm run build
+
+      - name: Start web (production) and wait for it to answer
+        if: steps.gate.outputs.present == 'true'
+        run: |
+          cd apps/web && nohup npm run start > web.log 2>&1 &
+          echo started
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:3100 > /dev/null 2>&1; then
+              echo "web up after ${i}s"; exit 0
+            fi
+            sleep 1
+          done
+          echo "web did not start within 60s"; cat apps/web/web.log; exit 1
+
+      - name: Playwright e2e (full retrieval + assistant flows)
+        if: steps.gate.outputs.present == 'true'
+        working-directory: apps/web
+        run: npx playwright test
+
+      - name: Load / p95 smoke -- concurrent /health (no artifacts needed)
+        if: steps.gate.outputs.present == 'true'
+        run: |
+          node apps/web/e2e/load-smoke.mjs \
+            --url http://127.0.0.1:8100/health \
+            --count 60 --concurrency 10 --p95 1500
+
+      - name: Upload Playwright evidence
+        if: always() && steps.gate.outputs.present == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: floralens-web-e2e-evidence
+          path: plans/260709-1427-dual-app-buildout/reports/floralens-ui
+          if-no-files-found: ignore
