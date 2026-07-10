@@ -1,10 +1,18 @@
-# FloraLens — ML Backend (Phase 0-3b)
+# FloraLens
 
-Flower visual-similarity search backend with GPU-accelerated embeddings and calibrated results. See `PRD.md` and `IMPLEMENTATION-PLAN.md`
-for the full product spec; this README covers what's built so far: **Phase 0
-(scaffold)**, **Phase 1 (dataset, splits, embeddings, retrieval eval, vector
-index, search API)**, and **Phase 3-3b (DINOv2 fine-tuning, one-shot test
-eval, score calibration, promotion gate)**.
+Flower visual-similarity search app with GPU-accelerated embeddings and calibrated results. See `PRD.md` and `IMPLEMENTATION-PLAN.md`
+for the full product spec.
+
+**ML backend (this README's focus):** dataset, splits, embeddings, retrieval eval,
+vector index, and search API; DINOv2 ViT-L/14 fine-tuning, one-shot held-out test
+eval, score calibration, and promotion gate. Active model: `finetuned_arcface_dinov2_v2`.
+
+**Also shipped (see `apps/web` + `apps/api`):** a **naturalist assistant** (`POST /api/assistant`,
+SSE) that reuses AgentForge's unmodified `agent_core` runtime (naturalist + care_advisor manifests
+under `agents/`), a **3D galaxy** explorer (`GET /api/galaxy`, `apps/web/app/galaxy-page.tsx`),
+**My Garden** saved-specimen collection (`/api/garden`), a **memory inspector** (`/api/memory`) over
+the assistant's durable short-term thread memory, opt-in **shared-key auth + rate limiting + secret
+redaction** on the write/assistant endpoints, and **CI** (`.github/workflows/ci.yml`).
 
 ## Layout
 
