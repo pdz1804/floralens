@@ -188,7 +188,10 @@ def test_gallery_facts_tool_returns_real_gallery_data():
     assert gallery_name in result.meta["matched_species"]
 
 
+@pytest.mark.skipif(not EMBEDDINGS_CACHE.exists(), reason="embeddings cache not built yet")
 def test_gallery_facts_tool_handles_no_match_gracefully():
+    # Without the gallery index the tool returns a "not built" error rather than
+    # a clean no-match, so this needs the (gitignored) embeddings cache.
     tool = GalleryFactsTool()
     result = asyncio.run(tool.run(species="zzz-not-a-real-species-zzz"))
     assert result.ok  # a clean "no match" is not a tool error

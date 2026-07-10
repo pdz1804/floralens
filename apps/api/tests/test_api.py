@@ -109,7 +109,10 @@ def test_specimen_image_serves_known_id():
     assert len(resp.content) > 0
 
 
+@pytest.mark.skipif(not EMBEDDINGS_CACHE.exists(), reason="embeddings cache not built yet")
 def test_specimen_image_unknown_id_404():
+    # Resolving a specimen id loads the gallery index first, so this needs the
+    # (gitignored) embeddings cache present.
     resp = client.get("/api/specimen/does-not-exist/image")
     assert resp.status_code == 404
 
