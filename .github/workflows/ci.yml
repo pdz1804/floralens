@@ -84,6 +84,17 @@ jobs:
           #     here rather than left to fail on a missing-fixture path.
           pytest -v --deselect tests/test_smoke_e2e.py::test_embed_index_query_smoke
 
+      - name: Run ML metric-regression gate (Recall@5 / mAP@10 must not regress)
+        run: |
+          # Build-blocking retrieval-quality guard (Gap G9): fails if the
+          # shipped model's Recall@5 / mAP@10 on the FIXED test subset drops
+          # below the recorded baseline minus tolerance (ml/eval/
+          # metric_regression_baseline.json). It reads only committed JSON eval
+          # reports -- no model download, no embeddings cache (gitignored),
+          # CPU-only. The test lives under ml/eval/ rather than the tests/
+          # testpaths in pytest.ini, so its path is passed explicitly here.
+          pytest -v ml/eval/test_metric_regression.py
+
   web-build:
     name: web-build
     runs-on: ubuntu-latest

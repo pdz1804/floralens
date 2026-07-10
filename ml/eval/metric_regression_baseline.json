@@ -1,0 +1,12 @@
+{
+  "_comment": "Frozen retrieval-quality baseline for the currently-shipped model. This is the recorded reference the CI metric-regression gate (ml/eval/test_metric_regression.py) guards against: if a future model / eval report drops a guarded metric below (reference - tolerance) on the fixed test subset, CI fails. Update these reference values ONLY when a new model is intentionally promoted (re-record from its committed eval report). Values copied verbatim from the shipped model's committed eval report so the gate currently passes with tolerance headroom.",
+  "reference_model_version": "finetuned_arcface_dinov2_v2",
+  "dataset_hash": "1d26d1c1634cd3890ecaa68cd2748df779e6d128",
+  "eval_split": "test",
+  "current_eval_report": "ml/eval/reports/candidate_test_eval_report.json",
+  "tolerance": 0.02,
+  "guarded_metrics": {
+    "recall@5": 0.9975550122249389,
+    "map@10": 0.994784249387521
+  }
+}
