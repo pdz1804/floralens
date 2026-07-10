@@ -20,7 +20,9 @@
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 22px clamp(14px, 3vw, 24px);
+  /* The card fills the page width, but the conversation stays capped at a
+     comfortable reading column, centred via symmetric side padding. */
+  padding: 22px max(clamp(14px, 3vw, 24px), calc((100% - 760px) / 2));
   display: flex;
   flex-direction: column;
   gap: 18px;
@@ -267,7 +269,9 @@
   display: flex;
   gap: 10px;
   align-items: center;
-  padding: 14px clamp(14px, 3vw, 20px);
+  /* Match the stream's centred reading column so the input aligns with the
+     message bubbles instead of stretching the full card width. */
+  padding: 14px max(clamp(14px, 3vw, 20px), calc((100% - 760px) / 2));
   border-top: 1px solid var(--line);
   background: color-mix(in srgb, var(--panel) 92%, var(--bg));
 }
@@ -295,4 +299,4 @@
   margin: 0;
   padding: 11px 18px;
 }
-.errorBar { margin: 0 clamp(14px, 3vw, 20px) 14px; }
+.errorBar { margin: 0 max(clamp(14px, 3vw, 20px), calc((100% - 760px) / 2)) 14px; }

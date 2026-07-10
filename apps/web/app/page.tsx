@@ -350,14 +350,17 @@ export default function Page() {
                 <LinkIcon width={15} height={15} /> …or load from a URL
               </label>
               <div className="url-row">
-                <input
-                  id="url"
-                  type="text"
-                  placeholder="https://…/flower.jpg"
-                  value={urlInput}
-                  onChange={(e) => setUrlInput(e.target.value)}
-                  data-testid="url-input"
-                />
+                <span className="input-affix">
+                  <LinkIcon width={16} height={16} aria-hidden="true" />
+                  <input
+                    id="url"
+                    type="text"
+                    placeholder="https://…/flower.jpg"
+                    value={urlInput}
+                    onChange={(e) => setUrlInput(e.target.value)}
+                    data-testid="url-input"
+                  />
+                </span>
                 <button type="button" className="btn btn-ghost" onClick={onLoadUrl}>
                   Load
                 </button>

@@ -11,7 +11,7 @@
 
 /* ---- Hero ----------------------------------------------------------------- */
 .hero {
-  max-width: 640px;
+  max-width: 720px;
   margin-bottom: clamp(20px, 3vw, 28px);
 }
 .hero h2 {
@@ -78,30 +78,35 @@
 }
 .searchIcon {
   position: absolute;
-  left: 13px;
+  left: 15px;
   top: 50%;
   transform: translateY(-50%);
   color: var(--faint);
   pointer-events: none;
   display: grid;
   place-items: center;
+  transition: color 0.15s var(--ease);
 }
+.searchField:focus-within .searchIcon { color: var(--primary); }
 .searchInput {
   width: 100%;
   background: var(--panel-2);
   color: var(--ink);
   border: 1px solid var(--line);
   border-radius: var(--pill);
-  padding: 10px 40px 10px 40px;
+  padding: 12px 42px 12px 44px;
   font-size: 14px;
   font-family: inherit;
-  transition: border-color 0.15s var(--ease), box-shadow 0.15s var(--ease);
+  box-shadow: var(--shadow-sm);
+  transition: border-color 0.15s var(--ease), box-shadow 0.15s var(--ease), background 0.15s var(--ease);
 }
 .searchInput::placeholder { color: var(--faint); }
+.searchInput:hover { border-color: var(--line-strong); }
 .searchInput:focus {
   outline: none;
+  background: var(--panel);
   border-color: var(--primary);
-  box-shadow: 0 0 0 3px var(--primary-soft);
+  box-shadow: 0 0 0 3px var(--primary-soft), var(--shadow-sm);
 }
 .searchClear {
   position: absolute;

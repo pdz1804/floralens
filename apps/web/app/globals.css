@@ -243,7 +243,7 @@ a { color: inherit; }
    --------------------------------------------------------------------------- */
 .wrap { max-width: 1160px; margin: 0 auto; padding: clamp(24px, 4vw, 44px) clamp(18px, 4vw, 40px) 56px; }
 
-.hero { max-width: 640px; margin-bottom: clamp(24px, 3vw, 36px); }
+.hero { max-width: 720px; margin-bottom: clamp(24px, 3vw, 36px); }
 .hero .eyebrow {
   display: inline-flex;
   align-items: center;
@@ -357,7 +357,7 @@ a { color: inherit; }
   margin: 20px 0 8px;
 }
 .field-label svg { color: var(--faint); }
-.url-row { display: flex; gap: 8px; }
+.url-row { display: flex; gap: 10px; align-items: stretch; }
 
 input[type="text"] {
   width: 100%;
@@ -365,17 +365,42 @@ input[type="text"] {
   color: var(--ink);
   border: 1px solid var(--line);
   border-radius: var(--r-sm);
-  padding: 10px 12px;
-  font-size: 13.5px;
+  padding: 12px 14px;
+  font-size: 14px;
   font-family: inherit;
-  transition: border-color 0.15s var(--ease), box-shadow 0.15s var(--ease);
+  box-shadow: var(--shadow-sm);
+  transition: border-color 0.15s var(--ease), box-shadow 0.15s var(--ease), background 0.15s var(--ease);
 }
 input[type="text"]::placeholder { color: var(--faint); }
+input[type="text"]:hover { border-color: var(--line-strong); }
 input[type="text"]:focus {
   outline: none;
+  background: var(--panel);
   border-color: var(--primary);
-  box-shadow: 0 0 0 3px var(--primary-soft);
+  box-shadow: 0 0 0 3px var(--primary-soft), var(--shadow-sm);
 }
+
+/* Icon-affixed field: a leading glyph sits inside the input, and the input
+   reserves left padding so text never rides under it. Used by the URL loader. */
+.input-affix {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+.input-affix > svg {
+  position: absolute;
+  left: 14px;
+  color: var(--faint);
+  pointer-events: none;
+  transition: color 0.15s var(--ease);
+}
+.input-affix input[type="text"] { padding-left: 40px; }
+.input-affix:focus-within > svg { color: var(--primary); }
+
+/* Load button rides the same height as the field and never shrinks. */
+.url-row .btn-ghost { flex: 0 0 auto; padding-top: 0; padding-bottom: 0; }
 
 /* Preview */
 .preview {
@@ -770,8 +795,8 @@ input[type="text"]:focus {
 }
 
 /* ---- Pipeline page -------------------------------------------------------- */
-.pipeline { max-width: 900px; }
-.pipeline-hero { max-width: 640px; margin-bottom: 34px; }
+.pipeline { max-width: 960px; }
+.pipeline-hero { max-width: 720px; margin-bottom: 34px; }
 .pipeline-hero h2 { font-size: clamp(26px, 4vw, 38px); line-height: 1.1; margin: 0 0 12px; }
 .pipeline-hero p { color: var(--muted); margin: 0 0 8px; max-width: 62ch; }
 .model-chip { font-size: 12.5px; color: var(--faint); margin-top: 4px; }
@@ -1042,7 +1067,7 @@ table.metrics tbody tr:hover { background: var(--panel-2); }
 
 /* ---- About page ----------------------------------------------------------- */
 .about { max-width: 960px; }
-.about-hero { max-width: 640px; margin-bottom: 36px; }
+.about-hero { max-width: 720px; margin-bottom: 36px; }
 .about-hero h2 { font-size: clamp(26px, 4vw, 40px); line-height: 1.1; margin: 0 0 14px; }
 .about-hero p { color: var(--muted); margin: 0; font-size: clamp(15px, 2vw, 16.5px); max-width: 58ch; }
 
@@ -1430,7 +1455,7 @@ table.metrics tbody tr:hover { background: var(--panel-2); }
    ADDITIVE v4: Galaxy tab — 3D embedding point cloud + 2D fallback
    =========================================================================== */
 .galaxy { max-width: 1160px; }
-.galaxy-hero { max-width: 640px; margin-bottom: 26px; }
+.galaxy-hero { max-width: 720px; margin-bottom: 26px; }
 .galaxy-hero h2 { font-size: clamp(26px, 4vw, 38px); line-height: 1.1; margin: 0 0 12px; }
 .galaxy-hero p { color: var(--muted); margin: 0; max-width: 62ch; }
 
@@ -1515,8 +1540,8 @@ table.metrics tbody tr:hover { background: var(--panel-2); }
 /* ============================================================================
    Naturalist assistant (PRD P5-6) — chat UI over POST /api/assistant (SSE)
    ============================================================================ */
-.assistant { max-width: 860px; }
-.assistant-hero { max-width: 640px; margin-bottom: 26px; }
+.assistant { max-width: 1160px; }
+.assistant-hero { max-width: 720px; margin-bottom: 26px; }
 .assistant-hero h2 { font-size: clamp(26px, 4vw, 38px); line-height: 1.1; margin: 0 0 12px; }
 .assistant-hero p { color: var(--muted); margin: 0; max-width: 62ch; }
 
@@ -1734,7 +1759,7 @@ table.metrics tbody tr:hover { background: var(--panel-2); }
    My Garden tab (PRD Phase 7) — saved specimens + assistant memory inspector
    =========================================================================== */
 .garden { max-width: 1160px; display: flex; flex-direction: column; gap: 20px; }
-.garden-hero { max-width: 640px; margin-bottom: 6px; }
+.garden-hero { max-width: 720px; margin-bottom: 6px; }
 .garden-hero h2 { font-size: clamp(26px, 4vw, 38px); line-height: 1.1; margin: 0 0 12px; }
 .garden-hero p { color: var(--muted); margin: 0; max-width: 62ch; }
 
