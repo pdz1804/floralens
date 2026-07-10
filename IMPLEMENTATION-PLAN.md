@@ -20,7 +20,7 @@ Stack: FastAPI + PyTorch + LangGraph + mem0 (Python) / Next.js + Three.js (TS).
 | 6 | Naturalist multi-agent assistant | 5 | LangGraph, prompts, web search | ☑ |
 | 7 | My Garden + mem0 memory | 5,6 | Memory | ☑ |
 | 8 | Testing, CI gates & ML regression | 1,3b,6 | **Test strategy (PRD §15)** | ☑ |
-| 9 | Auth, hardening, observability | all | Platform | ◐ (shared-key shipped; per-user/OAuth deferred) |
+| 9 | Auth, hardening, observability | all | Platform | ◐ (shared-key + per-user scaffold shipped; login UI/OAuth deferred) |
 
 ---
 
@@ -107,7 +107,7 @@ Stack: FastAPI + PyTorch + LangGraph + mem0 (Python) / Next.js + Three.js (TS).
 - Rate limiting; structured logging; tool-call tracing; model-version tag on searches.
 - Accessibility pass; README + run docs.
 **Exit:** all NFRs (§12) met; clean secret scan.
-> **Shipped scope (◐):** opt-in **shared-key** auth (`FLORALENS_API_KEY` via `X-API-Key`/`Bearer`, `apps/api/app/auth.py`) on write/read-private endpoints; per-IP rate limiting (`rate_limit.py`) on `/api/search` + `/api/assistant`; secret redaction (`redaction.py`). **Deferred:** per-user email/password + OAuth and per-user isolation — current build is a single shared key, not multi-user.
+> **Shipped scope (◐):** opt-in **shared-key** auth (`FLORALENS_API_KEY` via `X-API-Key`/`Bearer`, `apps/api/app/auth.py`) on write/read-private endpoints; per-IP rate limiting (`rate_limit.py`) on `/api/search` + `/api/assistant`; secret redaction (`redaction.py`); a **per-user scaffold** (`resolve_user` JWT via `FLORALENS_JWT_SECRET`, `DEFAULT_USER` sentinel, garden + memory isolated per user, dev `/api/auth/token`). **Deferred:** real email/password + OAuth login and a web login surface — the token minter is a scaffold, not production login.
 
 ---
 
@@ -122,7 +122,7 @@ Stack: FastAPI + PyTorch + LangGraph + mem0 (Python) / Next.js + Three.js (TS).
 Rationale: nail the evaluation protocol before touching training, so every later model claim is trustworthy.
 
 ## Decisions (resolved — see PRD §18)
-pgvector *(planned; v1 ships in-memory cosine — see Progress Log)* · pseudo-3D specimen cards · **ArcFace first** then triplet comparison · sandbox deferred to AgentForge · Oxford-102 only for v1.
+pgvector *(opt-in backend shipped; in-memory cosine remains the default — see Progress Log)* · pseudo-3D specimen cards · **ArcFace first** then triplet comparison · sandbox deferred to AgentForge · Oxford-102 only for v1.
 Non-blocking build-time picks: backbone (OpenCLIP ViT-B/32 vs DINOv2) decided by Phase 1 baseline; GPU (local vs cloud).
 
 ## Progress Log
@@ -138,9 +138,13 @@ Phase table was stale (Phases 2, 4–9 still ☐/◐); verified each against the
 - **Phase 9** — shipped as ◐: shared-key auth + rate-limit + secret redaction (see Phase 9 note).
 
 **Honest partials / deferred (not overclaimed):**
-- **Auth:** shared-key only; per-user email/password + OAuth and per-user isolation not done.
-- **Vector store:** pgvector deferred; v1 uses in-memory cosine (numpy) over the gallery partition.
+- **Auth:** shared-key gate plus a per-user scaffold (see 2026-07-11 continuation); email/password login UI and OAuth still deferred.
+- **Vector store:** in-memory cosine (numpy) is the default; an opt-in pgvector backend now exists (see 2026-07-11 continuation).
 - **Backbone:** OpenCLIP/DINOv2 active; DINOv3 gated behind an HF token.
 - **Scale:** Oxford-102 only; iNaturalist-scale is post-v1.
 - **Specimen viewer:** GLTF → pseudo-3D cards by decision (Open Q#2).
-- **PRD §11 API surface:** `/api/models`, `/api/specimens/{id}`, `/api/embed` are being added and are not yet in `main.py`.
+
+### 2026-07-11 — Continuation round (pgvector + per-user scaffold + §11 API)
+- **PRD §11 API surface** — `GET /api/models`, `GET /api/specimens/{id}`, `POST /api/embed` added to `main.py` (`models_service.py`, `specimen_service.py`), with tests.
+- **Vector store (opt-in pgvector)** — `ml/index/pgvector_store.py` (psycopg 3 + pgvector) behind a `VectorIndex` Protocol; `get_gallery_store()` env-selects on `FLORALENS_VECTOR_STORE=pgvector` + `DATABASE_URL`, falling back to in-memory. Validated live against pgvector 0.8.5 (including `/api/search` served end-to-end). In-memory stays the default.
+- **Per-user auth scaffold** — `resolve_user` JWT dependency (`FLORALENS_JWT_SECRET`), `DEFAULT_USER="public"` sentinel so single-user behavior is unchanged when unset; garden isolated by composite `(user_id, specimen_id)` with an idempotent migration; per-user memory namespace; dev `POST /api/auth/token` + `GET /api/auth/me`. Still deferred: real login/OAuth and a web login surface — the token minter is an explicit scaffold, not production login.
