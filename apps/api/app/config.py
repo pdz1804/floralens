@@ -66,6 +66,19 @@ class Settings:
     # requires `pip install 'mem0ai>=0.1'` + OPENAI_API_KEY; the default path
     # never imports mem0, so a missing package can never break the app.
     memory_provider: str = os.environ.get("FLORALENS_MEMORY_PROVIDER", "in_memory")
+    # Opt-in pgvector-backed gallery vector store (additive — default
+    # "in_memory" keeps search_service.get_gallery_store() on the existing
+    # ml.index.vector_store.VectorStore path, byte-for-byte unchanged). Set to
+    # "pgvector" (and provide database_url below) to persist gallery vectors
+    # in Postgres via ml.index.pgvector_store.PgVectorStore instead; any
+    # connection/import failure falls back to in_memory with a logged warning
+    # (see search_service.get_gallery_store), so an unreachable DB never
+    # breaks search.
+    vector_store: str = os.environ.get("FLORALENS_VECTOR_STORE", "in_memory")
+    # Postgres DSN for the pgvector backend above. Unused unless
+    # vector_store == "pgvector". None (the default) means pgvector is never
+    # attempted even if explicitly selected.
+    database_url: str | None = os.environ.get("DATABASE_URL")
 
 
 settings = Settings()

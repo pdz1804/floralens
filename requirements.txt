@@ -68,6 +68,14 @@ langgraph-checkpoint-sqlite==3.1.0
 # `ModuleNotFoundError: asyncpg` even though FloraLens never touches
 # PostgresRunStore. Pinned here for the same reason as aiosqlite above.
 asyncpg==0.31.0
+# Opt-in pgvector gallery vector store (ml/index/pgvector_store.py,
+# FLORALENS_VECTOR_STORE=pgvector). NOT installed/imported by default — the
+# in_memory VectorStore stays the default and this module lazy-imports both
+# packages, so a plain `import ml.index.pgvector_store` never fails without
+# them. Install to enable the pgvector backend:
+#   pip install psycopg[binary]==3.2.3 pgvector==0.3.6
+psycopg[binary]==3.2.3
+pgvector==0.3.6
 # Opt-in semantic/persistent long-term memory for the naturalist assistant
 # (Gap G12). agent_core ships a `mem0` MemoryProvider that is lazily imported —
 # the default `in_memory` backend never touches it, so this dep is intentionally

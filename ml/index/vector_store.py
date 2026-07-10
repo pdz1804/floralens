@@ -8,7 +8,7 @@ needs correctness at gallery scale (hundreds-thousands of vectors), not ANN.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 
 import numpy as np
 
@@ -18,6 +18,28 @@ class SearchResult:
     id: str
     score: float
     metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@runtime_checkable
+class VectorIndex(Protocol):
+    """Structural contract shared by every gallery vector-store backend.
+
+    `VectorStore` (below) and `ml.index.pgvector_store.PgVectorStore` both
+    satisfy this shape without inheriting from it — search_service depends on
+    this Protocol, not on a concrete backend, so it can swap backends via
+    config without either implementation knowing about the other.
+    """
+
+    model_version: str
+
+    def add(self, id_: str, vector: np.ndarray, metadata: dict[str, Any] | None = None) -> None: ...
+
+    def query(
+        self,
+        vector: np.ndarray,
+        top_k: int = 12,
+        exclude_ids: set[str] | None = None,
+    ) -> list[SearchResult]: ...
 
 
 class VectorStore:

@@ -18,7 +18,7 @@ from ml.descriptions.loader import get_description
 from ml.embeddings.backbone import backbone_name, embed_image
 from ml.embeddings.cache import load_embeddings
 from ml.eval.calibration import confidence_band
-from ml.index.vector_store import VectorStore
+from ml.index.vector_store import VectorIndex, VectorStore
 from ml.preprocess.pipeline import preprocess, preprocess_fingerprint
 
 logger = logging.getLogger(__name__)
@@ -83,15 +83,19 @@ def reset_candidate_cache() -> None:
     _load_candidate.cache_clear()
 
 
-@functools.lru_cache(maxsize=1)
-def get_gallery_store() -> VectorStore:
-    """Build (once) the in-memory gallery vector store from the embeddings cache.
+def _build_gallery_records() -> tuple[str, list[tuple[str, np.ndarray, dict[str, Any]]]]:
+    """Load the embeddings cache and produce the (id, vector, metadata)
+    records every gallery backend ingests identically.
 
     Only specimens tagged split=="gallery" are indexed, matching the PRD
     rule that production search never queries against held-out val/test
     query partitions (§14.7). If `settings.model_version` names a promoted
     candidate, gallery vectors are projected through its head before
     indexing so query-time and index-time embeddings live in the same space.
+
+    Factored out of `get_gallery_store` so the in-memory and pgvector
+    backends both ingest this exact same data — neither backend re-derives
+    the fingerprint guards or projection logic independently.
     """
     vectors, metadata = load_embeddings(settings.embeddings_cache_dir)
 
@@ -126,7 +130,6 @@ def get_gallery_store() -> VectorStore:
     candidate = _load_candidate(settings.model_version)
     model_version = settings.model_version if candidate else metadata.get("model_version", "baseline")
 
-    store = VectorStore(model_version=model_version)
     specimens = metadata["specimens"]
     gallery_ids = [sid for sid, meta in specimens.items() if meta["split"] == "gallery"]
 
@@ -139,18 +142,78 @@ def get_gallery_store() -> VectorStore:
     else:
         projected = np.stack([vectors[sid] for sid in gallery_ids], axis=0)
 
-    for specimen_id, vector in zip(gallery_ids, projected):
-        meta = specimens[specimen_id]
-        store.add(
+    records = [
+        (
             specimen_id,
             vector,
             {
-                "label": meta["label"],
-                "label_name": meta["label_name"],
-                "image_path": meta["image_path"],
+                "label": specimens[specimen_id]["label"],
+                "label_name": specimens[specimen_id]["label_name"],
+                "image_path": specimens[specimen_id]["image_path"],
             },
         )
-    logger.info("gallery vector store ready: %d specimens (model_version=%s)", len(gallery_ids), model_version)
+        for specimen_id, vector in zip(gallery_ids, projected)
+    ]
+    return model_version, records
+
+
+def _build_pgvector_store(
+    model_version: str, records: list[tuple[str, np.ndarray, dict[str, Any]]]
+) -> VectorIndex:
+    """Construct the pgvector-backed store and ingest `records` if it's
+    currently empty for this model_version (so a second worker process
+    reuses rows a first worker already ingested instead of re-inserting).
+
+    Raises on any connection/import error — `get_gallery_store` catches that
+    and falls back to the in-memory store, per the additive/opt-in contract.
+    """
+    from ml.index.pgvector_store import PgVectorStore
+
+    dim = records[0][1].shape[-1] if records else 1024
+    store = PgVectorStore(model_version, settings.database_url, dim=dim)
+    if store.count() == 0:
+        for specimen_id, vector, meta in records:
+            store.add(specimen_id, vector, meta)
+    return store
+
+
+@functools.lru_cache(maxsize=1)
+def get_gallery_store() -> VectorIndex:
+    """Build (once) the gallery vector index used by `/api/search`.
+
+    Default backend (settings.vector_store == "in_memory", unset by default)
+    is the in-process `ml.index.vector_store.VectorStore` — behavior here is
+    byte-for-byte identical to before this backend was added. Set
+    FLORALENS_VECTOR_STORE=pgvector and DATABASE_URL to persist the gallery
+    in Postgres instead (`ml.index.pgvector_store.PgVectorStore`); any
+    connection or import failure on that path is logged and falls back to
+    in-memory, so a misconfigured or unreachable DB never breaks search.
+    """
+    model_version, records = _build_gallery_records()
+
+    if settings.vector_store == "pgvector" and settings.database_url:
+        try:
+            store = _build_pgvector_store(model_version, records)
+        except Exception:
+            logger.warning(
+                "pgvector gallery store unavailable (vector_store=pgvector); "
+                "falling back to the in-memory vector store",
+                exc_info=True,
+            )
+        else:
+            logger.info(
+                "gallery vector store ready: %d specimens (model_version=%s, backend=pgvector)",
+                len(records), model_version,
+            )
+            return store
+
+    store = VectorStore(model_version=model_version)
+    for specimen_id, vector, meta in records:
+        store.add(specimen_id, vector, meta)
+    logger.info(
+        "gallery vector store ready: %d specimens (model_version=%s, backend=in_memory)",
+        len(records), model_version,
+    )
     return store
 
 

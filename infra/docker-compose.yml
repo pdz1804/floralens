@@ -1,7 +1,13 @@
 # Infra stub for later phases (Postgres/pgvector, MinIO — PRD §13, IMPLEMENTATION-PLAN Phase 0).
-# Phase 0-1 deliberately does NOT depend on postgres: the vector index is
-# in-memory (ml/index/vector_store.py) and there is no persistence layer
-# yet. Uncomment/extend when Phase 2+ needs real storage.
+# The gallery vector index defaults to in-memory (ml/index/vector_store.py)
+# and needs no persistence layer. The `postgres` service below now runs the
+# `pgvector/pgvector` image (postgres:16 + the vector extension prebuilt) so
+# the OPT-IN pgvector backend (ml/index/pgvector_store.py,
+# FLORALENS_VECTOR_STORE=pgvector — see apps/api/app/config.py) has a
+# CREATE EXTENSION vector target to connect to; nothing here is required
+# unless that env var is set. `PgVectorStore.__init__` already runs
+# `CREATE EXTENSION IF NOT EXISTS vector` at connect time, so no separate
+# init script is needed here.
 #
 # `mlflow` IS used starting with the ML pipeline upgrade (bigger dataset +
 # DINOv2 backbone + preprocessing): training/eval scripts log directly to the
@@ -11,7 +17,7 @@
 # scripts' direct sqlite writes always see the same runs.
 services:
   postgres:
-    image: postgres:16
+    image: pgvector/pgvector:pg16
     environment:
       POSTGRES_USER: floralens
       POSTGRES_PASSWORD: floralens
