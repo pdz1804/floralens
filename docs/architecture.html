@@ -1,0 +1,478 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FloraLens System Architecture</title><style>
+:root{--bg:#fbfcfa;--panel:#fff;--ink:#182319;--muted:#566b58;--line:#dde6dc;
+--accent:#2f7a52;--accent2:#3fa06a;--code-bg:#f2f6f1;--pill:#e4f0e7}
+@media(prefers-color-scheme:dark){:root{--bg:#0f1512;--panel:#151d17;--ink:#e8f0e8;
+--muted:#9fb3a1;--line:#2a352b;--accent:#6fce9c;--accent2:#3fa06a;--code-bg:#1b241d;--pill:#1c2e22}}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);margin:0;
+font:16px/1.7 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Inter,sans-serif;
+-webkit-font-smoothing:antialiased}
+.wrap{max-width:900px;margin:0 auto;padding:48px 24px 100px}
+h1,h2,h3,h4{font-family:Georgia,"Times New Roman",serif;font-weight:600;line-height:1.25;
+letter-spacing:-.01em;margin:1.8em 0 .5em}
+h1{font-size:2.1rem;margin-top:.2em;border-bottom:2px solid var(--line);padding-bottom:.3em}
+h2{font-size:1.5rem;border-bottom:1px solid var(--line);padding-bottom:.25em}
+h3{font-size:1.2rem}
+a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
+p,li{color:var(--ink)}
+img{max-width:100%;height:auto;border:1px solid var(--line);border-radius:12px;
+box-shadow:0 6px 20px -8px rgba(24,35,25,.16);display:block;margin:18px 0}
+code{background:var(--code-bg);border:1px solid var(--line);border-radius:5px;
+padding:.12em .4em;font:.88em ui-monospace,"Cascadia Code",Consolas,monospace}
+pre{background:var(--code-bg);border:1px solid var(--line);border-radius:12px;
+padding:16px 18px;overflow-x:auto}pre code{background:none;border:0;padding:0}
+blockquote{border-left:3px solid var(--accent2);margin:1em 0;padding:.2em 0 .2em 16px;color:var(--muted)}
+table{border-collapse:collapse;width:100%;margin:18px 0;font-size:.95em;display:block;overflow-x:auto}
+th,td{border:1px solid var(--line);padding:8px 12px;text-align:left}
+th{background:var(--pill)}
+hr{border:0;border-top:1px solid var(--line);margin:2em 0}
+.toc{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:6px 18px;margin:0 0 24px}
+</style></head>
+<body><div class="wrap"><h1 id="floralens-system-architecture">FloraLens System Architecture</h1>
+<h2 id="overview">Overview</h2>
+<p>FloraLens is a full-stack AI application for visual flower identification and discovery. The system consists of a <strong>Next.js frontend</strong> (React + Three.js) communicating with a <strong>Python FastAPI backend</strong> that orchestrates three core subsystems: ML embedding service, unified agent core, and persistence layers.</p>
+<pre><code>┌──────────────────────────────────────────────────────────────────────────────┐
+│                          Frontend (Next.js + React)                          │
+│                            Port 3100                                         │
+│                                                                              │
+│   ┌──────────────┐  ┌──────────────┐  ┌──────────┐  ┌───────────┐           │
+│   │  Search UI   │  │ 3D Galaxy    │  │Categories│  │ Assistant │           │
+│   │              │  │ (Three.js)   │  │          │  │   Chat    │           │
+│   └──────────────┘  └──────────────┘  └──────────┘  └───────────┘           │
+│                                                                              │
+│   ┌──────────────┐                                                          │
+│   │   My Garden  │                                                          │
+│   └──────────────┘                                                          │
+└──────┬───────────────────────────────────────────────────────────────────────┘
+       │ REST/JSON + SSE (POST /api/search, /api/assistant, etc.)
+       │
+┌──────▼───────────────────────────────────────────────────────────────────────┐
+│                         Backend (FastAPI + Python)                           │
+│                            Port 8100                                         │
+│                                                                              │
+│  ┌─────────────────────────────┬──────────────────────────────────────┐    │
+│  │   ML Embedding Service       │  Unified Agent Core (AgentForge)    │    │
+│  ├─────────────────────────────┼──────────────────────────────────────┤    │
+│  │                             │                                      │    │
+│  │ • DINOv2 ViT-L/14 backbone  │ • Agent manifests (YAML)             │    │
+│  │   (frozen, 1024-d)          │ • LangGraph state machine            │    │
+│  │                             │ • Tool registry + execution          │    │
+│  │ • ArcFace projection head    │   - EmbeddingSearchTool              │    │
+│  │   (1024→256 MLP)            │   - WebSearchTool                    │    │
+│  │                             │ • Memory provider (mem0)             │    │
+│  │ • Isotonic calibrator       │ • LangGraph checkpointer (SQLite)    │    │
+│  │   (ECE: 0.499 → 0.00005)    │                                      │    │
+│  │                             │                                      │    │
+│  │ • In-memory cosine          │ • Supervisor → sub-agents            │    │
+│  │   vector store (1632 gallery)│   (identifier, researcher,           │    │
+│  │                             │    care_advisor)                    │    │
+│  │ • Embeddings cache (NumPy)  │                                      │    │
+│  └─────────────────────────────┴──────────────────────────────────────┘    │
+│                                                                              │
+│  Routes:                                                                   │
+│    GET  /health, /api/health                                               │
+│    POST /api/search                 (image → top-K matches + scores)       │
+│    POST /api/assistant (SSE)        (chat, streaming)                      │
+│    GET  /api/categories             (102 species grid)                     │
+│    GET  /api/galaxy                 (3D projection points)                 │
+│    GET  /api/pipeline               (ML model card snapshot)               │
+│    POST /api/preprocess-preview     (show preprocessing steps)             │
+│    GET  /api/specimen/{id}/image    (fetch specimen thumbnail)            │
+│    GET/POST/DELETE /api/garden      (save/list/remove plants)             │
+│    GET/DELETE /api/memory           (inspect/clear memories)              │
+└──────┬───────────────────────────────────────────────────────────────────────┘
+       │
+       ├─────────────────┬──────────────────┬──────────────────┐
+       │                 │                  │                  │
+    ┌──▼──────┐   ┌──────▼─────┐    ┌──────▼────┐   ┌─────────▼────┐
+    │Embeddings│   │   SQLite   │    │ Model     │   │   Precomputed│
+    │ Cache    │   │   Store    │    │ Artifacts │   │   3D         │
+    │          │   │            │    │           │   │   Projection │
+    │• embeddings.npz     │    │• head.pt  │   │• projection.json│
+    │• metadata.json      │    │• calibrator   │   │ (PCA, 1632    │
+    │ (8185 specimens)    │    │  .pkl     │   │  points)       │
+    │                     │    │• model_card.md    │                │
+    │ Query: extract      │    │                   │   Load once,   │
+    │ vector by id,       │    │  Per ModelVersion │   serve cached │
+    │ compute cosine      │    │                   │                │
+    │                     │    │ Fit on val,       │   Use for      │
+    │ (1632 gallery only) │    │ eval on test      │   Galaxy tab   │
+    └──────────┘   └──────────┘    └───────────┘   └────────────────┘
+</code></pre>
+<hr />
+<h2 id="component-breakdown">Component Breakdown</h2>
+<h3 id="frontend-nextjs-react">Frontend (Next.js + React)</h3>
+<p><strong>Location:</strong> <code>apps/web/</code></p>
+<p><strong>Key Pages:</strong>
+- <code>app/search-page.tsx</code> — Image upload/paste, search results grid with calibrated scores
+- <code>app/categories-page.tsx</code> — 102-species grid, click to inspect
+- <code>app/galaxy-page.tsx</code> — 3D point-cloud viewer (Three.js, react-three-fiber)
+- <code>app/assistant-page.tsx</code> — Chat interface with streaming responses and tool traces
+- <code>app/garden-page.tsx</code> — Saved plants collection
+- <code>app/pipeline-page.tsx</code> — ML model card, preprocessing flow visualization</p>
+<p><strong>Styling:</strong> Tailwind CSS; responsive design for mobile/tablet/desktop.</p>
+<p><strong>Real-time Communication:</strong> Fetch API for REST; EventSource API for SSE (assistant streaming).</p>
+<hr />
+<h3 id="fastapi-backend">FastAPI Backend</h3>
+<p><strong>Location:</strong> <code>apps/api/app/main.py</code> (route definitions)</p>
+<p><strong>Service Modules:</strong></p>
+<h4 id="search-service-search_servicepy">Search Service (<code>search_service.py</code>)</h4>
+<ul>
+<li>Loads the active embedding model (DINOv2 + ArcFace head)</li>
+<li>Accepts image (multipart or base64 JSON)</li>
+<li>Strips EXIF metadata for privacy</li>
+<li>Embeds query image</li>
+<li>Queries the in-memory cosine vector store</li>
+<li>Calibrates raw scores to probabilities</li>
+<li>Returns top-K results with specimen metadata (label, description, confidence band)</li>
+</ul>
+<h4 id="categories-service-categories_servicepy">Categories Service (<code>categories_service.py</code>)</h4>
+<ul>
+<li>Loads embeddings metadata (102 classes)</li>
+<li>Returns per-class gallery/total counts and representative specimen IDs</li>
+<li>Sorted by species name</li>
+<li>Cached on first call</li>
+</ul>
+<h4 id="galaxy-service-galaxy_servicepy">Galaxy Service (<code>galaxy_service.py</code>)</h4>
+<ul>
+<li>Loads or builds (on-demand) the 3D PCA projection of gallery embeddings</li>
+<li>Returns points: <code>{specimen_id, x, y, z, label, label_name, color}</code></li>
+<li>Color is stable per species (used consistently across galaxy and categories tabs)</li>
+</ul>
+<h4 id="pipeline-service-pipeline_servicepy">Pipeline Service (<code>pipeline_service.py</code>)</h4>
+<ul>
+<li>Serves read-only snapshots of the active model card</li>
+<li>Includes dataset scale, preprocessing steps, backbone details</li>
+<li>Reads from <code>ml/eval/reports/</code> and <code>ml/models/</code> disk artifacts</li>
+<li>Powers the Pipeline page</li>
+</ul>
+<h4 id="assistant-service-assistant_servicepy">Assistant Service (<code>assistant_service.py</code>)</h4>
+<ul>
+<li>Compiles the naturalist agent from YAML manifests (<code>agents/naturalist_supervisor.yaml</code>, etc.)</li>
+<li>Reuses AgentForge's Unified Agent Core (editable install)</li>
+<li>Implements domain-specific tools:</li>
+<li><code>EmbeddingSearchTool</code> — calls <code>/api/search</code> internally</li>
+<li><code>WebSearchTool</code> — calls Tavily API (via agent core)</li>
+<li>Streams responses as SSE events (type: <code>run_started</code>, <code>step</code>, <code>done</code>, <code>error</code>)</li>
+<li>Manages memory via mem0 provider</li>
+<li>Manages short-term thread state via SQLite checkpointer (if <code>FLORALENS_CHECKPOINT_DB</code> set)</li>
+</ul>
+<h4 id="garden-service-garden_servicepy">Garden Service (<code>garden_service.py</code>)</h4>
+<ul>
+<li>SQLite CRUD for saved plants (specimen_id, label_name, saved_at)</li>
+<li>Resolver: specimen_id → label_name (from embeddings metadata)</li>
+</ul>
+<h4 id="memory-service-memory_servicepy">Memory Service (<code>memory_service.py</code>)</h4>
+<ul>
+<li>Queries the mem0 provider used by the naturalist agent</li>
+<li>Allows users to inspect and delete long-term memories</li>
+<li>Scope: per-user, namespace: <code>floralens</code></li>
+</ul>
+<h4 id="config-auth">Config &amp; Auth</h4>
+<ul>
+<li><code>config.py</code> — environment variables, settings</li>
+<li><code>auth.py</code> — optional API key guard (<code>require_api_key</code>)</li>
+<li><code>rate_limit.py</code> — per-IP rate limiting on search and assistant</li>
+<li><code>redaction.py</code> — redact secrets (API keys) from logs and error messages</li>
+</ul>
+<hr />
+<h2 id="ml-embedding-service">ML Embedding Service</h2>
+<p><strong>Location:</strong> <code>ml/</code> directory</p>
+<h3 id="backbone-dinov2-vit-l14">Backbone: DINOv2 ViT-L/14</h3>
+<ul>
+<li><strong>Frozen:</strong> The backbone is never trained; it outputs 1024-dimensional embeddings</li>
+<li><strong>Input:</strong> RGB images (preprocessed: EXIF stripped, resized to 518×518, center-cropped, color-preserving grey-world white balance)</li>
+<li><strong>Output:</strong> 1024-d dense vectors, ready for L2 normalization</li>
+<li><strong>Loading:</strong> <code>ml/embeddings/backbone.py</code> handles device selection (<code>auto</code>, <code>cuda</code>, <code>cpu</code>) and model download (OpenCLIP/DINOv2)</li>
+</ul>
+<h3 id="projection-head-arcface">Projection Head: ArcFace</h3>
+<ul>
+<li><strong>Architecture:</strong> MLP (1024→hidden_dim→256) + L2 normalization</li>
+<li><strong>Loss:</strong> ArcFace (additive angular margin, Deng et al. CVPR 2019)</li>
+<li><strong>Purpose:</strong> Projects frozen backbone embeddings to a new space where same-species specimens cluster tightly on the unit hypersphere</li>
+<li><strong>Training:</strong> Only this head is trained (fine-tuned on Oxford-102 train split; Phase 3)</li>
+<li><strong>Inference:</strong> Normalizes output to unit length, enabling cosine similarity as the retrieval metric</li>
+</ul>
+<h3 id="calibrator-isotonic-regression">Calibrator: Isotonic Regression</h3>
+<ul>
+<li><strong>Input:</strong> Raw cosine similarity (0–1 range in practice)</li>
+<li><strong>Output:</strong> Calibrated probability P(same species)</li>
+<li><strong>Training:</strong> Fit on validation-set pairs only (Phase 3b)</li>
+<li><strong>Evaluation:</strong> Expected Calibration Error (ECE) on test set (target ≤ 0.05)</li>
+<li><strong>Result:</strong> ECE 0.499 (naive rescaling) → 0.00005 (after isotonic calibration)</li>
+</ul>
+<h3 id="vector-store-in-memory-cosine-index">Vector Store: In-Memory Cosine Index</h3>
+<p><strong>Location:</strong> <code>ml/index/vector_store.py</code></p>
+<ul>
+<li><strong>Type:</strong> In-memory NumPy arrays + metadata JSON</li>
+<li><strong>Composition:</strong> Gallery partition only (1,632 specimens)</li>
+<li><strong>Query:</strong> O(n) cosine similarity computation (acceptable for 1.6k specimens, p95 &lt; 200ms)</li>
+<li><strong>Metadata:</strong> specimen_id, label (0–101), label_name, description</li>
+</ul>
+<h3 id="embeddings-cache">Embeddings Cache</h3>
+<p><strong>Location:</strong> <code>ml/data/embeddings_cache/</code></p>
+<ul>
+<li><code>embeddings.npz</code> — NumPy-compressed array of all gallery embeddings (1632, 256)</li>
+<li><code>metadata.json</code> — per-embedding metadata (id, label, label_name)</li>
+<li>Built once per model version; loaded into memory on API startup</li>
+</ul>
+<hr />
+<h2 id="data-flow">Data Flow</h2>
+<h3 id="search-query-flow">Search Query Flow</h3>
+<pre><code>User image (multipart/base64)
+  ↓
+[EXIF strip]
+  ↓
+[DINOv2 backbone: 1024-d]
+  ↓
+[ArcFace head: 256-d + L2-norm]
+  ↓
+[Cosine similarity vs gallery (1632 vectors)]
+  ↓
+[Top-K matches]
+  ↓
+[Calibrate scores → calibrated probabilities]
+  ↓
+[Assign confidence bands (high/medium/low)]
+  ↓
+[Hydrate with specimen metadata + descriptions]
+  ↓
+JSON response (specimen_id, label, label_name, score, confidence, band, description)
+</code></pre>
+<p><strong>Latency:</strong> p95 &lt; 800ms (target, PRD §5). GPU: ~100–200ms; CPU fallback: ~500–800ms.</p>
+<h3 id="assistant-chat-flow">Assistant Chat Flow</h3>
+<pre><code>User message
+  ↓
+[Compile naturalist agent from manifest]
+  ↓
+[LangGraph supervisor decision: which sub-agent?]
+  ↓
+[Identifier sub-agent (calls EmbeddingSearchTool)]
+  │ └→ /api/search internally, returns top matches
+  │
+[Researcher sub-agent (calls WebSearchTool)]
+  │ └→ Tavily web search + citation extraction
+  │
+[Care-Advisor sub-agent (synthesis)]
+  └→ Combines results, applies guardrails
+  ↓
+[Memory augmentation: retrieve user's garden + preferences]
+  ↓
+[Stream answer as SSE events]
+  │ ├→ run_started
+  │ ├→ step (per tool call + reasoning)
+  │ ├→ step (final answer)
+  │ └→ done
+  ↓
+[Checkpointer saves thread state (if enabled)]
+</code></pre>
+<p><strong>Memory:</strong> Long-term (mem0, user scope) + short-term (LangGraph checkpointer, thread scope).</p>
+<h3 id="training-model-versioning-flow">Training &amp; Model Versioning Flow</h3>
+<pre><code>Oxford-102 dataset (8,185 images)
+  ↓
+[Split builder: train/val/test/gallery, stratified by class]
+  ├→ Leakage guard: near-duplicate detection
+  └→ Produces split_manifest.json
+  ↓
+[Baseline: embed all splits with frozen DINOv2, evaluate]
+  ├→ Recall@1 val=0.9607, test=0.9535
+  └→ Baseline model activated
+  ↓
+[Fine-tuning (Phase 3):
+   - Embed train subset (1530 base + 3 augmented views = 4590)
+   - Hyperparameter sweep (8 ArcFace + 1 triplet config)
+   - Early stop on val Recall@5
+   - Select best candidate on val metrics only (test untouched)]
+  ├→ Winner: run03_arcface_lr0.001_hd0_od256_m0.5
+  └→ Candidate model (val Recall@1=0.956)
+  ↓
+[Test evaluation (Phase 3b, one-shot):
+   - Embed test subset with candidate head
+   - Evaluate on test split (same protocol)
+   - Recall@1 test=0.9762 (beats baseline 0.9535)]
+  ↓
+[Calibration:
+   - Fit calibrator on val pairs
+   - Evaluate on test pairs (ECE target ≤ 0.05)
+   - Achieved: ECE = 0.00005]
+  ↓
+[Promotion gate (§14.8):
+   Check: Recall@5 improvement + val/test gap + ECE
+   ✅ PROMOTE → Candidate becomes finetuned_arcface_dinov2_v2
+   ↓
+[Re-embed gallery under new version, upsert to index]
+  ↓
+[Activate in MODEL_VERSION env var]
+</code></pre>
+<p><strong>Artifacts:</strong> All runs, EvalReports, calibrator, model weights stored in <code>ml/models/</code> and <code>ml/eval/reports/</code>.</p>
+<hr />
+<h2 id="persistence-layers">Persistence Layers</h2>
+<h3 id="embeddings-cache-numpy">Embeddings Cache (NumPy)</h3>
+<ul>
+<li><strong>File:</strong> <code>ml/data/embeddings_cache/embeddings.npz</code> + <code>metadata.json</code></li>
+<li><strong>Format:</strong> Compressed NumPy archive for speed</li>
+<li><strong>Lifecycle:</strong> Built once by <code>ml.scripts.build_embeddings_index</code>; loaded into memory on API startup</li>
+<li><strong>Versioning:</strong> Re-built and tagged per model version (new index created on model promotion)</li>
+</ul>
+<h3 id="sqlite-stores">SQLite Stores</h3>
+<p><strong>Garden:</strong>
+- <strong>File:</strong> <code>ml/garden.db</code> (or path from <code>FLORALENS_GARDEN_DB</code> env)
+- <strong>Schema:</strong> <code>garden_plants(specimen_id, label_name, saved_at)</code>
+- <strong>Lifecycle:</strong> Persisted across API restarts; user-facing CRUD</p>
+<p><strong>Memory (LangGraph Checkpointer):</strong>
+- <strong>File:</strong> Path from <code>FLORALENS_CHECKPOINT_DB</code> env (optional; default: disabled)
+- <strong>Schema:</strong> LangGraph checkpointer schema (thread state snapshots)
+- <strong>Lifecycle:</strong> One entry per thread_id; resuming a thread_id resumes prior conversation</p>
+<h3 id="model-artifacts">Model Artifacts</h3>
+<ul>
+<li><strong>Location:</strong> <code>ml/models/finetuned_arcface_dinov2_v2/</code> (version-specific)</li>
+<li><strong>Contents:</strong></li>
+<li><code>head.pt</code> — PyTorch weights for the ArcFace projection head</li>
+<li><code>calibrator.pkl</code> — Scikit-learn fitted isotonic regressor (or Platt calibrator)</li>
+<li><code>metadata.json</code> — hyperparams, dataset hash, seed, train/val/test metrics</li>
+<li><code>model_card.md</code> — human-readable summary</li>
+</ul>
+<h3 id="ml-experiment-tracking">ML Experiment Tracking</h3>
+<ul>
+<li><strong>Tool:</strong> MLflow (default) or Weights &amp; Biases (optional)</li>
+<li><strong>Backend:</strong> SQLite-backed (local) or cloud</li>
+<li><strong>Artifacts:</strong> Each run logs config, metrics curves, dataset hash, seed, git commit</li>
+<li><strong>Purpose:</strong> Reproducibility + hyperparameter audit trail</li>
+</ul>
+<hr />
+<h2 id="service-module-dependencies">Service Module Dependencies</h2>
+<pre><code>main.py (entry point, route definitions)
+  ├── search_service.py
+  │   ├── ml/embeddings/backbone.py (DINOv2 loader)
+  │   ├── ml/train/head.py (ArcFace head loader)
+  │   ├── ml/eval/calibration.py (score calibrator)
+  │   ├── ml/index/vector_store.py (cosine search)
+  │   └── ml/embeddings/cache.py (embeddings loader)
+  │
+  ├── categories_service.py
+  │   └── ml/embeddings/cache.py (metadata reader)
+  │
+  ├── galaxy_service.py
+  │   ├── ml/embeddings/cache.py (embeddings)
+  │   └── ml/scripts/build_galaxy_projection.py (PCA projection)
+  │
+  ├── pipeline_service.py
+  │   ├── ml/eval/reports/ (JSON artifacts)
+  │   └── ml/models/ (model cards)
+  │
+  ├── assistant_service.py
+  │   ├── agent_core (Unified Agent Core, editable install)
+  │   ├── agent_core/registries (tools, prompts, memory)
+  │   ├── agents/ (naturalist manifests)
+  │   └── [search_service for EmbeddingSearchTool]
+  │
+  ├── garden_service.py
+  │   └── sqlite (garden.db)
+  │
+  ├── memory_service.py
+  │   ├── agent_core/memory (mem0 provider)
+  │   └── assistant_registries
+  │
+  └── auth.py, rate_limit.py, redaction.py (middleware)
+</code></pre>
+<hr />
+<h2 id="deployment-considerations">Deployment Considerations</h2>
+<h3 id="local-development">Local Development</h3>
+<ul>
+<li>API: <code>uvicorn apps.api.app.main:app --reload --port 8100</code></li>
+<li>Web: <code>npm run dev</code> in apps/web (port 3100)</li>
+<li>ML: Embeddings cache auto-loads on first search; galaxy projection auto-built on first galaxy request</li>
+<li>No external services required; .env loads from project root + sibling agentforge/</li>
+</ul>
+<h3 id="production-future">Production (Future)</h3>
+<ul>
+<li>Vector index → pgvector (Postgres) for scalability beyond 100k specimens</li>
+<li>Session state → Redis (for distributed assistant checkpointing)</li>
+<li>Model artifacts → S3-compatible object store</li>
+<li>Experiment tracking → MLflow server or W&amp;B cloud</li>
+<li>Images → Object store (S3/MinIO) with CDN</li>
+</ul>
+<hr />
+<h2 id="error-handling-graceful-degradation">Error Handling &amp; Graceful Degradation</h2>
+<table>
+<thead>
+<tr>
+<th>Scenario</th>
+<th>Behavior</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Search with missing embeddings cache</strong></td>
+<td>HTTP 503, "search index not built yet"</td>
+</tr>
+<tr>
+<td><strong>Assistant with OPENAI_API_KEY unset</strong></td>
+<td>HTTP 503, "agent core error: API key not configured"</td>
+</tr>
+<tr>
+<td><strong>Invalid image upload</strong></td>
+<td>HTTP 400, "could not decode image: ..."</td>
+</tr>
+<tr>
+<td><strong>Specimen ID not found in gallery</strong></td>
+<td>HTTP 404, "specimen image not found"</td>
+</tr>
+<tr>
+<td><strong>Memory not configured</strong></td>
+<td>HTTP 503, "memory provider not configured"</td>
+</tr>
+<tr>
+<td><strong>Tool call failure (web search offline)</strong></td>
+<td>Partial answer + note "web search unavailable"</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="performance-targets-prd-5-12">Performance Targets (PRD §5, §12)</h2>
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>Target</th>
+<th>Status</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Search latency (p95)</td>
+<td>≤ 800 ms</td>
+<td>✅ Measured ~100–200 ms (GPU), ~500–800 ms (CPU)</td>
+</tr>
+<tr>
+<td>Galaxy interactive first frame</td>
+<td>≤ 2.5 s</td>
+<td>✅ ~500 ms with instanced rendering</td>
+</tr>
+<tr>
+<td>Retrieval Recall@1 (test)</td>
+<td>≥ 80%</td>
+<td>✅ 97.62% (finetuned_arcface_dinov2_v2)</td>
+</tr>
+<tr>
+<td>Calibration ECE (test)</td>
+<td>≤ 0.05</td>
+<td>✅ 0.00005</td>
+</tr>
+<tr>
+<td>Assistant answer citation</td>
+<td>≥ 90%</td>
+<td>⏳ In evaluation</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="references">References</h2>
+<ul>
+<li><strong><a href="api.md">API Reference</a></strong> — Endpoint schemas and examples</li>
+<li><strong><a href="ml.md">ML Deep-Dive</a></strong> — Training protocol, metrics, calibration details</li>
+<li><strong><a href="cross-product-reuse.md">Cross-Product Reuse</a></strong> — Agent core design and extensibility</li>
+<li><strong><a href="../PRD.md">PRD.md</a></strong> — Product requirements, system architecture, success metrics</li>
+</ul></div></body></html>

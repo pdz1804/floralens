@@ -1,233 +1,198 @@
 # FloraLens
 
-Flower visual-similarity search app with GPU-accelerated embeddings and calibrated results. See `PRD.md` and `IMPLEMENTATION-PLAN.md`
-for the full product spec.
+**Visual flower identification and plant discovery platform powered by fine-tuned embedding models and multi-agent AI.**
 
-**ML backend (this README's focus):** dataset, splits, embeddings, retrieval eval,
-vector index, and search API; DINOv2 ViT-L/14 fine-tuning, one-shot held-out test
-eval, score calibration, and promotion gate. Active model: `finetuned_arcface_dinov2_v2`.
+Paste or upload a photo of any flower, instantly get visually similar species ranked by calibrated confidence scores, explore them in an interactive 3D galaxy, and chat with an AI naturalist assistant that remembers your personal plant collection.
 
-**Also shipped (see `apps/web` + `apps/api`):** a **naturalist assistant** (`POST /api/assistant`,
-SSE) that reuses AgentForge's unmodified `agent_core` runtime (naturalist + care_advisor manifests
-under `agents/`), a **3D galaxy** explorer (`GET /api/galaxy`, `apps/web/app/galaxy-page.tsx`),
-**My Garden** saved-specimen collection (`/api/garden`), a **memory inspector** (`/api/memory`) over
-the assistant's durable short-term thread memory, opt-in **shared-key auth + rate limiting + secret
-redaction** on the write/assistant endpoints, and **CI** (`.github/workflows/ci.yml`).
+![Search Results — visual similarity ranking with confidence bands](docs/assets/search-results.png)
+*Visual search: rose photo → ranked species matches with calibrated confidence scores and high/medium/low bands.*
 
-## Layout
+---
 
-```
-apps/api/app/        FastAPI app (health, search, specimen images, preprocessing preview, pipeline snapshots)
-  main.py            routes
-  search_service.py  gallery vector store + query pipeline + model-version switch + EXIF strip
-  pipeline_service.py preprocessing visualization + pipeline architecture snapshots
-  config.py          env-driven settings (MODEL_VERSION, FLORALENS_DEVICE, etc.)
-apps/api/tests/       API tests (TestClient)
-ml/data/              dataset ingestion (Oxford-102), split builder, leakage guard
-ml/embeddings/        frozen backbone (DINOv2 ViT-L/14, OpenCLIP/resnet50 fallback) + cache + preprocessing
-ml/preprocess/        color-preserving grey-world white balance
-ml/device.py          FLORALENS_DEVICE (auto|cuda|cpu) resolution, shared by backbone + trainer
-ml/train/             projection head, ArcFace/triplet losses, trainer, promotion gate
-ml/index/             in-memory cosine vector store
-ml/eval/              retrieval metrics + eval harness + calibration + reports/
-ml/models/            persisted ModelVersion artifacts (head weights + calibrator + model cards)
-ml/scripts/           CLI entry points that run the pipeline end-to-end
-ml/tracking/          MLflow experiment tracking (sqlite-backed)
-tests/                ML unit/integration tests (89 total: metrics, leakage, embeddings, smoke, training, calibration, gate, preprocessing)
-```
+## Capabilities
 
-## Setup
+### Visual Similarity Search
+Upload or paste a flower image to find visually similar species. Results are ranked by **calibrated confidence scores** (not raw cosine similarity), with each match labeled as high/medium/low confidence. Powered by a fine-tuned embedding model (DINOv2 ViT-L/14 with ArcFace projection head) achieving **97.6% Recall@1** on held-out test set.
+
+![Categories — the 102 flower species](docs/assets/categories.png)
+*Species Catalogue: Browse all 102 flower classes, each with gallery specimen count and a representative thumbnail.*
+
+### Species Catalogue
+Browse the full 102-flower species taxonomy at a glance. Each species shows its gallery count, total dataset count, and a representative specimen thumbnail. Color-coded for visual consistency with the 3D galaxy.
+
+![Specimen Dialog — detailed view with gallery images and save option](docs/assets/species-dialog.png)
+*Species Details: View all gallery specimens for a species and save your favorites to "My Garden."*
+
+### 3D Embedding Galaxy
+Explore the learned embedding space as an interactive 3D point cloud. Each point represents a flower specimen; hover for details, click to inspect. The galaxy is color-coded by species family and navigable with your mouse — a visual proof that the model clusters similar flowers nearby.
+
+![3D Embedding Galaxy](docs/assets/galaxy.png)
+*3D Galaxy: fly through 1,632 gallery specimens in learned embedding space, colored by species.*
+
+### ML Pipeline Transparency
+The Pipeline page shows the full machine-learning architecture: dataset composition (train/val/test splits), preprocessing steps, the frozen DINOv2 backbone, the ArcFace head training, calibration results (ECE → 0.00005), and the promotion gate decision that activates new models. No black box.
+
+![ML Pipeline & Model Card](docs/assets/pipeline.png)
+*Pipeline Snapshot: dataset scale, preprocessing flow, backbone details, val/test metrics side by side, and calibration.**
+
+### Naturalist AI Assistant
+Chat with a multi-agent team: the Supervisor routes your query to the Identifier (visual search), Researcher (web search), and Care Advisor. Answers are streamed with full tool-call transparency, citations, and a disclaimer. The assistant remembers your garden preferences and past plants across sessions.
+
+![Assistant Chat](docs/assets/assistant.png)
+*Naturalist Assistant: multi-agent chat with streaming responses, tool traces, and memory-augmented answers.*
+
+### My Garden
+Save identified plants to your personal collection. The assistant augments its answers with knowledge of your saved plants and their locations, making advice context-aware and personalized.
+
+![My Garden — saved plant collection](docs/assets/garden.png)
+*My Garden: persistent collection of plants you've identified, with assistant-memory integration.*
+
+---
+
+## Quick Start
+
+### Prerequisites
+- Python 3.11+ (for the API backend)
+- Node.js 18+ (for the web frontend)
+- NVIDIA GPU (optional; CPU fallback available)
+- `OPENAI_API_KEY` and `TAVILY_API_KEY` (for the naturalist assistant)
+
+### 1. Start the FastAPI Backend
 
 ```bash
+cd apps/api
 python -m venv venv
-venv/Scripts/python.exe -m pip install -r requirements.txt
 
-# GPU (preferred, if an NVIDIA GPU + driver is present):
-venv/Scripts/python.exe -m pip install torch==2.7.1+cu126 torchvision==0.22.1+cu126 --index-url https://download.pytorch.org/whl/cu126
-# CPU fallback (no compatible GPU/driver, or the CUDA install fails):
-# venv/Scripts/python.exe -m pip install torch==2.7.1 torchvision==0.22.1 --index-url https://download.pytorch.org/whl/cpu
+# On Windows:
+venv\Scripts\python.exe -m pip install -r requirements.txt
+venv\Scripts\python.exe -m uvicorn apps.api.app.main:app --port 8100
 
-venv/Scripts/python.exe -m pip install open-clip-torch==2.31.0
+# On macOS/Linux:
+python -m pip install -r requirements.txt
+python -m uvicorn apps.api.app.main:app --port 8100
 ```
 
-The embedding backbone stays frozen throughout (in Phase 3 only the small
-projection head is trained). The backbone is **GPU-accelerated** and runs on
-your available device: by default `FLORALENS_DEVICE=auto` auto-picks CUDA if 
-available, else CPU; set `FLORALENS_DEVICE=cuda` to force GPU (raises if none
-available) or `FLORALENS_DEVICE=cpu` to force CPU. See `ml/device.py` for 
-resolution logic. Measured GPU-vs-CPU throughput and device details are available
-in `ml/eval/reports/device_benchmark.json` (generated by `ml.scripts.run_device_benchmark`).
+The API auto-loads `.env` files from the project root and the sibling `agentforge/` directory, so set `OPENAI_API_KEY` and `TAVILY_API_KEY` there or in your shell environment.
 
-## Data pipeline (run once, in order)
+**Health check:** `curl http://localhost:8100/api/health`
+
+### 2. Start the Next.js Web Frontend
 
 ```bash
-# 1. Ingest Oxford-102, build the stratified train/val/test/gallery split
-#    manifest + leakage report (downloads ~8189 images on first run).
-venv/Scripts/python.exe -m ml.scripts.build_splits
-
-# 2. Embed a stratified subset with the frozen backbone and cache vectors.
-venv/Scripts/python.exe -m ml.scripts.build_embeddings_index
-
-# 3. Run the retrieval eval protocol (val + test) and save the baseline
-#    EvalReport.
-venv/Scripts/python.exe -m ml.scripts.run_baseline_eval
+cd apps/web
+npm install
+npm run dev
 ```
 
-Outputs:
-- `ml/data/manifests/split_manifest.json`, `ml/data/manifests/leakage_report.json`
-- `ml/data/embeddings_cache/embeddings.npz`, `ml/data/embeddings_cache/metadata.json`
-- `ml/eval/reports/baseline_eval_report.json`
+Open your browser to `http://localhost:3100` and start searching for flowers.
 
-### Dataset source note
+### 3. (Optional) Run the ML Pipeline
 
-The pipeline pulls Oxford-102 Flowers images from the
-`dpdl-benchmark/oxford_flowers102` mirror on the Hugging Face Hub rather
-than the original `robots.ox.ac.uk` server. The original server download
-stalled repeatedly in this environment (~90% through a 345MB transfer,
-multiple attempts); the HF mirror has an **identical 102-class label
-schema and ordering** (verified against `torchvision.datasets.Flowers102.classes`)
-and downloads reliably. This is a transport-only substitution — same
-dataset, same content, same license.
-
-### Data scale
-
-- **Full Oxford-102 dataset: 8185 images** (of 8189 nominal — 4 exact cross-partition
-  duplicates in the source were deduplicated by content hash), 102 classes.
-- Split manifest (train/val/test/gallery) is **built and used at full 8185 scale** and is leakage-free by construction 
-  (enforced by `tests/test_leakage.py`).
-- **Active partition sizes (Phase 3b)**: gallery 1632, val 818, test 818 (stratified by class).
-- **Train subset for fine-tuning** (Phase 3): 1530 base train images (stratified 15/class cap), 
-  3 augmented views each (original, horizontal flip, mild rotation) = 4590 embeddings.
-  Capped in `ml/data/subset.py::DEFAULT_PER_CLASS_CAP` — easily raised for different split schedules.
-
-## Phase 3-3b: fine-tuning, test eval, calibration, promotion gate
+The API ships with pre-built embeddings and a fine-tuned model. To rebuild the gallery index from scratch:
 
 ```bash
-# 4. Embed a stratified, train-only-augmented subset of the train split
-#    (frozen backbone; ~1530 base images x 3 views = 4590 embeddings).
-venv/Scripts/python.exe -m ml.scripts.embed_train_subset
+cd .
+python -m venv venv
 
-# 5. ArcFace hyperparameter sweep (+ 1 triplet comparison run); early
-#    stopping + selection on VAL Recall@5 only. Test split is never read
-#    (enforced by ml.train.isolation_guard). Saves the winning candidate to
-#    ml/models/finetuned_arcface_v1/.
-venv/Scripts/python.exe -m ml.scripts.run_finetune_sweep
+# Install ML dependencies (includes torch + DINOv2):
+venv\Scripts\python.exe -m pip install -r requirements.txt  # or apps/api/requirements.txt
+venv\Scripts\python.exe -m pip install torch==2.7.1+cu126 torchvision==0.22.1+cu126 \
+  --index-url https://download.pytorch.org/whl/cu126
+venv\Scripts\python.exe -m pip install open-clip-torch==2.31.0
 
-# 6. ONE-SHOT held-out test evaluation of the selected candidate.
-venv/Scripts/python.exe -m ml.scripts.run_test_eval
-
-# 7. Fit the score calibrator on VAL, evaluate ECE on TEST, persist the
-#    fitted calibrator next to the head weights.
-venv/Scripts/python.exe -m ml.scripts.run_calibration
-
-# 8. Promotion gate: candidate vs baseline on held-out test.
-venv/Scripts/python.exe -m ml.scripts.run_promotion_gate
+# Build the splits and embeddings:
+venv\Scripts\python.exe -m ml.scripts.build_splits
+venv\Scripts\python.exe -m ml.scripts.build_embeddings_index
+venv\Scripts\python.exe -m ml.scripts.run_baseline_eval
 ```
 
-Outputs:
-- `ml/data/embeddings_cache/train/{embeddings.npz,metadata.json}`
-- `ml/eval/reports/experiments/run*.json` (per-run config + epoch curves + ids used)
-- `ml/eval/reports/finetune_sweep_summary.json`
-- `ml/models/finetuned_arcface_v1/{head.pt,metadata.json,calibrator.pkl}`
-- `ml/eval/reports/candidate_test_eval_report.json`
-- `ml/eval/reports/candidate_calibration_report.json`
-- `ml/eval/reports/promotion_decision.json`
+See [ml/README in the source README](README.md#run-the-api) for the full pipeline (includes fine-tuning, test eval, calibration, and promotion gate).
 
-## Run the API
+---
 
-```bash
-venv/Scripts/python.exe -m uvicorn apps.api.app.main:app --reload --port 8000
-```
+## Architecture
 
-**Endpoints:**
+**Frontend (Next.js + React + Three.js)** on port 3100 communicates with a **Python FastAPI backend** on port 8100. The backend orchestrates three core subsystems:
 
-- `GET /health`, `GET /api/health` — liveness + active `model_version`.
-- `POST /api/search` — multipart `file` upload OR JSON `{"image_base64": "..."}`;
-  returns top-K gallery matches with:
-  - `specimen_id`, `label`, `label_name` (102 Oxford Flowers species)
-  - `score` (cosine similarity, 0..1 range in practice)
-  - `confidence` (calibrated probability, 0..1; `null` if baseline active)
-  - `band` (confidence tier: "high"/"medium"/"low"; `null` if baseline active)
-  - `description` (curated botanical note if available; `null` otherwise)
-  
-  EXIF is stripped before embedding. `MODEL_VERSION` env selects active model (default
-  `finetuned_arcface_dinov2_v2`). Top-K (default 12) set via `DEFAULT_TOP_K` env.
+- **ML/Embedding Service:** fine-tuned DINOv2 backbone with ArcFace projection head; in-memory cosine vector store; calibrated retrieval scores.
+- **Unified Agent Core:** multi-agent LangGraph runtime (supervisor, identifier, researcher, care-advisor); web search integration; per-user memory via mem0.
+- **Persistence:** SQLite for garden plants and assistant memory; embeddings cache (NumPy) + metadata; model artifacts (PyTorch weights + calibrator).
 
-- `GET /api/specimen-image/{specimen_id}` — fetch specimen image by ID (PNG/JPEG).
-- `POST /api/preprocess-preview` — show preprocessing pipeline steps on an uploaded image
-  (color-preserving grey-world white balance, EXIF strip, resize).
-- `GET /api/pipeline-snapshot` — fetch preprocessing pipeline architecture flow diagram (SVG/JSON).
+See [docs/architecture.md](docs/architecture.md) for the full system diagram, data flows, and service module breakdown.
 
-## Tests
+---
 
-```bash
-venv/Scripts/python.exe -m pytest -v
-```
+## Documentation
 
-**89 tests**: retrieval metric fixtures, vector store ranking, embedding
-determinism/shape, leakage (synthetic + real manifest hard-assert), API
-contract/validation/search, preprocessing pipeline (color preservation), an end-to-end 
-embed→index→query smoke test, plus Phase 3-3b: ArcFace/triplet loss gradient sanity, 
-projection-head shape/L2-norm, calibration monotonicity + ECE improvement, 
-promotion-gate decision logic, and a test-set-isolation guard (asserts training/selection
-never reads a test-split id, including against the real sweep run logs).
+- **[Architecture](docs/architecture.md)** — System design, data flow, service modules, and component interaction diagram.
+- **[API Reference](docs/api.md)** — Complete endpoint reference (request/response schemas, status codes, examples).
+- **[Machine Learning](docs/ml.md)** — Dataset, preprocessing, DINOv2 backbone, ArcFace training, calibration, metrics, and model evaluation protocol.
+- **[Unified Agent Core Reuse](docs/cross-product-reuse.md)** — How FloraLens proves the shared agent core is domain-independent.
 
-## Baseline results (DINOv2 ViT-L/14, zero-shot, full Oxford-102)
+---
 
-From `ml/eval/reports/baseline_eval_report.json` (gallery = 1632 specimens,
-818 val queries, 818 test queries):
+## Key Files & Setup
 
-| Split | Recall@1 | Recall@5 | Recall@10 | mAP@10 | MRR |
-|---|---|---|---|---|---|
-| val | 0.9607 | 0.9915 | 0.9951 | 0.9107 | 0.9758 |
-| test | 0.9535 | 0.9926 | 0.9963 | 0.9083 | 0.9709 |
+| Path | Purpose |
+|---|---|
+| `apps/api/` | FastAPI backend; see `app/main.py` for route definitions. |
+| `apps/web/` | Next.js + React frontend; see `app/` for page components. |
+| `ml/` | ML training, evaluation, calibration, and index building. |
+| `PRD.md` | Full product requirements (user stories, success metrics, non-goals). |
+| `IMPLEMENTATION-PLAN.md` | Phased roadmap and exit criteria per phase. |
 
-val↔test Recall@5 gap: 0.0011 (well under the 5-point overfitting guard in
-PRD §14.8).
+---
 
-## Phase 3 candidate: ArcFace projection head (val-selected, color-preserving preprocessing)
+## Technologies
 
-**Active model version: `finetuned_arcface_dinov2_v2`** (supersedes v1).
+| Component | Stack |
+|---|---|
+| **Frontend** | Next.js (App Router), React, TypeScript, Three.js (react-three-fiber), Tailwind CSS |
+| **Backend** | Python 3.11, FastAPI, Pydantic, SQLite |
+| **ML** | PyTorch, OpenCLIP/DINOv2, scikit-learn (calibration, metrics), UMAP |
+| **Agents** | LangGraph, Unified Agent Core (editable install), mem0 (long-term memory) |
+| **Observability** | MLflow (experiment tracking), structured logging, tool-call traces |
 
-Train-only-augmented subset: 1530 base train images (15/class stratified
-cap; every class has ≥24 train images), 3 views each (original, horizontal
-flip, mild rotation — color jitter deliberately excluded since flower
-species are color-diagnostic) = 4590 embeddings. 10-run hyperparameter
-sweep (8 ArcFace lr/output-dim/margin configs + 1 ArcFace MLP-head variant
-+ 1 triplet-loss comparison), early stopping on val Recall@5, selection by
-val metrics only (test never read — see `ml/eval/reports/experiments/`).
+---
 
-**v2 preprocessing fix** (2026-07-10): Grey-world white balance tuned to preserve
-saturated flower colors (v1 over-corrected, turning reds brown); full gallery/val/test
-re-embedded on GPU. See `ml/models/finetuned_arcface_dinov2_v2/model_card.md`.
+## Environment Variables
 
-Winner baseline: `run03_arcface_lr0.001_hd0_od256_m0.5` (linear head, 512→256,
-margin 0.5) — **val** Recall@1=0.956, Recall@5=0.993, mAP@10=0.938,
-MRR=0.971 on DINOv2 backbone (`ml/models/archive_openclip_v1/metadata.json` for original OpenCLIP-based v1).
+| Variable | Purpose | Example |
+|---|---|---|
+| `OPENAI_API_KEY` | OpenAI API key for the naturalist assistant | (set from `.env` or shell) |
+| `TAVILY_API_KEY` | Tavily web search API key for the researcher agent | (set from `.env` or shell) |
+| `FLORALENS_DEVICE` | GPU/CPU device selection (`auto`, `cuda`, or `cpu`) | `auto` (default) |
+| `MODEL_VERSION` | Active embedding model (`finetuned_arcface_dinov2_v2` or `baseline`) | `finetuned_arcface_dinov2_v2` (default) |
+| `FLORALENS_API_KEY` | (Optional) API key for write endpoints (garden, assistant, memory) | unset (optional hardening) |
 
-## Phase 3b: one-shot test result, calibration, promotion decision
+---
 
-From `ml/eval/reports/candidate_test_eval_report.json` and
-`ml/eval/reports/promotion_decision.json` (same 1632/818/818 gallery/val/test
-partitions, identical protocol to baseline):
+## Project Status
 
-| Model | test Recall@1 | test Recall@5 | test Recall@10 | test mAP@10 | test MRR |
-|---|---|---|---|---|---|
-| baseline (zero-shot DINOv2) | 0.9535 | 0.9926 | 0.9963 | 0.9083 | 0.9709 |
-| **finetuned_arcface_dinov2_v2** | **0.9762** | **0.9976** | **0.9988** | **0.9471** | **0.9863** |
+**Phase 3b (Test Eval + Calibration + Promotion Gate) ✅ COMPLETE**
 
-val↔test Recall@5 gap: 0.0012 (well under the 0.05 overfitting guard).
+- ✅ 102-class Oxford Flowers dataset with leakage-free splits
+- ✅ Zero-shot DINOv2 baseline (Recall@1 = 95.35%)
+- ✅ ArcFace fine-tuned model (Recall@1 = 97.62%)
+- ✅ Score calibration (ECE 0.499 → 0.00005)
+- ✅ Confidence bands (high/medium/low) in search results
+- ✅ Interactive 3D species visualization
+- ✅ Naturalist multi-agent assistant (reusing AgentForge core)
+- ✅ My Garden + persistent memory
+- ✅ ML regression tests + leakage guards
+- ⏳ Full end-to-end CI/CD pipeline (in progress)
 
-**Calibration** (isotonic regression, fit on val pairs, evaluated on test
-pairs — `ml/eval/reports/candidate_calibration_report.json`): ECE dropped
-from **0.499** (naive rescaled raw cosine, [-1,1]→[0,1]) to **0.00005**
-after calibration (target ≤ 0.05). **Confidence bands exposed in API**: high ≥0.70,
-medium ≥0.40, low <0.40. Calibrated `confidence` and `band` fields are now 
-part of the `SearchResultOut` schema.
+---
 
-**Promotion gate** (`ml/train/promotion_gate.py`, thresholds: Recall@5
-tolerance 0.02, val/test gap max 0.05, ECE max 0.05): **PROMOTE** —
-candidate test Recall@5 (0.9976) beats baseline (0.9926) outright, well
-within tolerance; val/test gap and ECE both pass. `finetuned_arcface_dinov2_v2`
-is now the default `MODEL_VERSION` (see `.env.example`); set
-`MODEL_VERSION=baseline` to roll back to zero-shot.
+## License & Attribution
+
+- **Dataset:** Oxford 102 Flowers (public domain; hosted on Hugging Face Hub for reliability)
+- **Vision Backbone:** DINOv2 (Meta AI Research; Apache 2.0)
+- **Embedding Model:** Fine-tuned with ArcFace loss (Deng et al., CVPR 2019)
+- **Agent Core:** Unified Agent Core (shared with AgentForge; see `packages/agent-core`)
+
+---
+
+## Questions?
+
+See the [Documentation](#documentation) section, check `PRD.md` for product decisions, or inspect `IMPLEMENTATION-PLAN.md` for phase status and next steps.

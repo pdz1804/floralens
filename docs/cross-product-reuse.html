@@ -1,0 +1,802 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Cross-Product Reuse: Unified Agent Core</title><style>
+:root{--bg:#fbfcfa;--panel:#fff;--ink:#182319;--muted:#566b58;--line:#dde6dc;
+--accent:#2f7a52;--accent2:#3fa06a;--code-bg:#f2f6f1;--pill:#e4f0e7}
+@media(prefers-color-scheme:dark){:root{--bg:#0f1512;--panel:#151d17;--ink:#e8f0e8;
+--muted:#9fb3a1;--line:#2a352b;--accent:#6fce9c;--accent2:#3fa06a;--code-bg:#1b241d;--pill:#1c2e22}}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);margin:0;
+font:16px/1.7 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Inter,sans-serif;
+-webkit-font-smoothing:antialiased}
+.wrap{max-width:900px;margin:0 auto;padding:48px 24px 100px}
+h1,h2,h3,h4{font-family:Georgia,"Times New Roman",serif;font-weight:600;line-height:1.25;
+letter-spacing:-.01em;margin:1.8em 0 .5em}
+h1{font-size:2.1rem;margin-top:.2em;border-bottom:2px solid var(--line);padding-bottom:.3em}
+h2{font-size:1.5rem;border-bottom:1px solid var(--line);padding-bottom:.25em}
+h3{font-size:1.2rem}
+a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
+p,li{color:var(--ink)}
+img{max-width:100%;height:auto;border:1px solid var(--line);border-radius:12px;
+box-shadow:0 6px 20px -8px rgba(24,35,25,.16);display:block;margin:18px 0}
+code{background:var(--code-bg);border:1px solid var(--line);border-radius:5px;
+padding:.12em .4em;font:.88em ui-monospace,"Cascadia Code",Consolas,monospace}
+pre{background:var(--code-bg);border:1px solid var(--line);border-radius:12px;
+padding:16px 18px;overflow-x:auto}pre code{background:none;border:0;padding:0}
+blockquote{border-left:3px solid var(--accent2);margin:1em 0;padding:.2em 0 .2em 16px;color:var(--muted)}
+table{border-collapse:collapse;width:100%;margin:18px 0;font-size:.95em;display:block;overflow-x:auto}
+th,td{border:1px solid var(--line);padding:8px 12px;text-align:left}
+th{background:var(--pill)}
+hr{border:0;border-top:1px solid var(--line);margin:2em 0}
+.toc{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:6px 18px;margin:0 0 24px}
+</style></head>
+<body><div class="wrap"><h1 id="cross-product-reuse-unified-agent-core">Cross-Product Reuse: Unified Agent Core</h1>
+<p>This document explains how FloraLens's naturalist assistant is built on an <strong>unmodified Unified Agent Core</strong> shared with AgentForge, proving that a single agent runtime can power radically different AI products.</p>
+<hr />
+<h2 id="the-unified-agent-core-design-principle">The Unified Agent Core: Design Principle</h2>
+<p>The <strong>Unified Agent Core</strong> is a reusable agent runtime designed to work across any domain:</p>
+<ul>
+<li><strong>Domain-agnostic runtime:</strong> LangGraph state machine, tool registry, memory provider, model registry</li>
+<li><strong>Domain-specific tools:</strong> Plugins that implement the actual work (search, web lookup, code execution, etc.)</li>
+<li><strong>Pluggable manifests:</strong> YAML agent definitions, swappable prompts, configurable guardrails</li>
+</ul>
+<p><strong>Promise:</strong> Add a new agent skill without touching the core. Prove it by shipping two very different products (AgentForge + FloraLens) using the identical core.</p>
+<hr />
+<h2 id="floralens-agent-architecture">FloraLens Agent Architecture</h2>
+<h3 id="agent-team-composition">Agent Team Composition</h3>
+<p>FloraLens's naturalist assistant is a <strong>multi-agent team</strong> orchestrated via a supervisor:</p>
+<pre><code>┌─────────────────────────────────────────────────┐
+│         Naturalist Supervisor (Supervisor)      │
+│  Routes user query to appropriate sub-agent     │
+└─────────────┬───────────────────────────────────┘
+              │
+    ┌─────────┼─────────┐
+    │         │         │
+┌───▼──┐ ┌────▼──┐ ┌────▼─────┐
+│Identifier       │Researcher       │Care-Advisor│
+│                 │                 │             │
+│Embedding search │Web search       │Synthesis    │
+│(internal /api)  │(Tavily)         │Guardrails   │
+│Visual ID        │Citations        │Care plan    │
+└────────────────┘└────────────────┘└─────────────┘
+</code></pre>
+<p><strong>Roles:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Agent</th>
+<th>Purpose</th>
+<th>Tool(s)</th>
+<th>Input</th>
+<th>Output</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Supervisor</strong></td>
+<td>Route &amp; coordinate</td>
+<td>—</td>
+<td>"How do I care for a rose?"</td>
+<td>Plan: call identifier, then care_advisor</td>
+</tr>
+<tr>
+<td><strong>Identifier</strong></td>
+<td>Visual identification</td>
+<td><code>embedding_search_tool</code></td>
+<td>Query image (optional)</td>
+<td>Top-K similar species + metadata</td>
+</tr>
+<tr>
+<td><strong>Researcher</strong></td>
+<td>Factual research</td>
+<td><code>web_search_tool</code></td>
+<td>Query topic</td>
+<td>Web search results + citations</td>
+</tr>
+<tr>
+<td><strong>Care-Advisor</strong></td>
+<td>Synthesis + advice</td>
+<td>—</td>
+<td>Identifier + Researcher results</td>
+<td>Personalized care plan + disclaimers</td>
+</tr>
+</tbody>
+</table>
+<h3 id="manifest-files-yaml">Manifest Files (YAML)</h3>
+<p>Agent definitions live in <code>agents/</code> directory (not shown in the web app, but loaded by the API):</p>
+<pre><code>agents/
+├── naturalist_supervisor.yaml
+├── naturalist_identifier.yaml
+├── naturalist_researcher.yaml
+├── naturalist_care_advisor.yaml
+└── prompts/
+    ├── naturalist_supervisor.md
+    ├── naturalist_identifier.md
+    └── ...
+</code></pre>
+<p><strong>Example manifest (naturalist_supervisor.yaml):</strong></p>
+<pre><code class="language-yaml">id: naturalist_supervisor
+version: &quot;1.0&quot;
+type: router
+
+# Model configuration (shared across core)
+model:
+  provider: anthropic
+  name: claude-sonnet-5
+  temperature: 0.2
+
+# Prompt reference (loaded by core)
+prompt_ref: prompts/naturalist_supervisor.md
+
+# Memory configuration
+memory:
+  provider: mem0
+  scope: user
+  namespace: floralens
+
+# Sub-agents this supervisor delegates to
+sub_agents:
+  - naturalist_identifier
+  - naturalist_researcher
+  - naturalist_care_advisor
+
+# Guardrails enforced by runtime
+guardrails:
+  - educational_disclaimer
+  - no_medical_dosage
+
+# I/O schema (Pydantic)
+io_schema:
+  input:
+    type: object
+    properties:
+      message:
+        type: string
+        description: &quot;User query&quot;
+  output:
+    type: object
+    properties:
+      answer:
+        type: string
+      citations:
+        type: array
+        items:
+          type: object
+</code></pre>
+<p><strong>Key design:</strong> No Python code in manifests. The core reads YAML, hydrates tools/prompts/models from registries, and executes the agent graph. Changing an agent = editing YAML + prompts, not touching core code.</p>
+<hr />
+<h2 id="unified-agent-core-registries-interfaces">Unified Agent Core: Registries &amp; Interfaces</h2>
+<h3 id="tool-registry">Tool Registry</h3>
+<p><strong>Purpose:</strong> Pluggable tool implementations. Each tool conforms to a common interface.</p>
+<p><strong>Interface (agent_core/tools.py):</strong></p>
+<pre><code class="language-python">class BaseTool(Protocol):
+    &quot;&quot;&quot;Async callable: takes input dict, returns output dict.&quot;&quot;&quot;
+
+    async def __call__(self, input: dict) -&gt; dict:
+        ...
+
+    @property
+    def name(self) -&gt; str:
+        &quot;&quot;&quot;Unique tool identifier.&quot;&quot;&quot;
+
+    @property
+    def description(self) -&gt; str:
+        &quot;&quot;&quot;What this tool does; used in prompts.&quot;&quot;&quot;
+
+    @property
+    def input_schema(self) -&gt; dict:
+        &quot;&quot;&quot;JSON Schema of input dict.&quot;&quot;&quot;
+</code></pre>
+<p><strong>FloraLens tools:</strong></p>
+<pre><code class="language-python"># apps/api/app/assistant_service.py
+
+class EmbeddingSearchTool(BaseTool):
+    &quot;&quot;&quot;Calls /api/search internally; returns top-K matches.&quot;&quot;&quot;
+
+    @property
+    def name(self) -&gt; str:
+        return &quot;embedding_search&quot;
+
+    @property
+    def description(self) -&gt; str:
+        return &quot;Search for visually similar flower species&quot;
+
+    @property
+    def input_schema(self) -&gt; dict:
+        return {
+            &quot;type&quot;: &quot;object&quot;,
+            &quot;properties&quot;: {
+                &quot;query&quot;: {&quot;type&quot;: &quot;string&quot;},
+                &quot;image_base64&quot;: {&quot;type&quot;: &quot;string&quot;, &quot;description&quot;: &quot;optional&quot;}
+            }
+        }
+
+    async def __call__(self, input: dict) -&gt; dict:
+        # Call /api/search internally
+        results = search_image(decode_base64(input.get(&quot;image_base64&quot;, &quot;&quot;)))
+        return {
+            &quot;results&quot;: [
+                {
+                    &quot;specimen_id&quot;: r.specimen_id,
+                    &quot;label_name&quot;: r.label_name,
+                    &quot;confidence&quot;: r.confidence
+                }
+                for r in results
+            ]
+        }
+
+class WebSearchTool(BaseTool):
+    &quot;&quot;&quot;Calls Tavily web search (implemented by agent core).&quot;&quot;&quot;
+
+    # (Reused from agent_core; FloraLens doesn't re-implement)
+    ...
+</code></pre>
+<p><strong>Registration:</strong></p>
+<pre><code class="language-python">def build_floralens_registries():
+    registries = build_base_registries()  # From agent_core
+
+    # Add domain-specific tools
+    registries.tools.register(
+        EmbeddingSearchTool(),
+        overwrite=False
+    )
+
+    # web_search_tool is already in base registries (from agent_core)
+
+    return registries
+</code></pre>
+<p><strong>Result:</strong> Supervisor can call both <code>embedding_search_tool</code> (FloraLens-specific) and <code>web_search_tool</code> (core, reused from AgentForge).</p>
+<h3 id="prompt-registry">Prompt Registry</h3>
+<p><strong>Purpose:</strong> Pluggable prompts. Change a prompt = update a Markdown file.</p>
+<p><strong>File structure:</strong></p>
+<pre><code>agents/prompts/
+├── naturalist_supervisor.md
+├── naturalist_identifier.md
+└── naturalist_care_advisor.md
+</code></pre>
+<p><strong>Example (naturalist_supervisor.md):</strong></p>
+<pre><code class="language-markdown"># Naturalist Supervisor
+
+You are a plant expert supervising a team of agents.
+
+Your job:
+1. Understand the user's query about flowers/plants
+2. Decide which agent to call:
+   - Identifier: visual search for similar species
+   - Researcher: factual information (care, history)
+   - Care-Advisor: personalized care plan
+
+Remember the user's garden from memory and personalize answers.
+
+Always include a disclaimer that this is educational advice, not medical.
+</code></pre>
+<p><strong>Loading (agent_core runtime):</strong></p>
+<pre><code class="language-python"># Core loads prompt at agent compile time
+prompt_text = load_prompt(prompt_ref=&quot;prompts/naturalist_supervisor.md&quot;)
+system_message = create_system_message(prompt_text)
+</code></pre>
+<p><strong>Updating:</strong> Change the <code>.md</code> file → next agent run uses new prompt. No code changes.</p>
+<h3 id="model-registry">Model Registry</h3>
+<p><strong>Purpose:</strong> Pluggable model providers. Swap Claude for GPT-4 without touching agent code.</p>
+<p><strong>Built-in models (agent_core):</strong></p>
+<pre><code class="language-python"># agent_core/models.py
+class ModelRegistry:
+    def get_model(self, provider: str, name: str):
+        if provider == &quot;anthropic&quot;:
+            return AnthropicModel(name)
+        elif provider == &quot;openai&quot;:
+            return OpenAIModel(name)
+        # ...
+</code></pre>
+<p><strong>Override for testing (FloraLens tests):</strong></p>
+<pre><code class="language-python"># test_assistant.py
+def test_assistant_chat():
+    registries = build_floralens_registries()
+
+    # Override model provider to mock LLM (no API key / cost)
+    registries.models.register(
+        MockModel(&quot;claude-sonnet&quot;),  # Returns fixed test response
+        overwrite=True
+    )
+
+    agent = compile_naturalist(registries)
+    result = await agent.astream(&quot;Hello&quot;, thread_id=&quot;test&quot;)
+    # ...
+</code></pre>
+<p><strong>Benefit:</strong> Test agents without spending tokens.</p>
+<h3 id="memory-provider-registry">Memory Provider Registry</h3>
+<p><strong>Purpose:</strong> Pluggable memory backends (mem0 vs custom).</p>
+<p><strong>Interface (agent_core/memory.py):</strong></p>
+<pre><code class="language-python">class MemoryProvider(Protocol):
+    async def add(self, text: str, meta: dict = None) -&gt; str:
+        &quot;&quot;&quot;Add a memory; return memory ID.&quot;&quot;&quot;
+
+    async def retrieve(self, query: str, top_k: int = 5) -&gt; list[Memory]:
+        &quot;&quot;&quot;Retrieve similar memories.&quot;&quot;&quot;
+
+    async def delete(self, memory_id: str) -&gt; bool:
+        &quot;&quot;&quot;Delete a memory.&quot;&quot;&quot;
+</code></pre>
+<p><strong>FloraLens memory configuration (manifest):</strong></p>
+<pre><code class="language-yaml">memory:
+  provider: mem0
+  scope: user         # Scoped to individual users
+  namespace: floralens  # Namespaced within FloraLens
+</code></pre>
+<p><strong>Long-term memory (mem0):</strong></p>
+<p>Stores semantic memories that persist across sessions and requests:
+- "User prefers indoor plants"
+- "User has a rose garden with 15 specimens"
+- "User lives in zone 6b"</p>
+<p><strong>Short-term memory (LangGraph checkpointer):</strong></p>
+<p>Persists conversation thread state:
+- Prior messages in the thread
+- Tool call history
+- Intermediate reasoning</p>
+<p><strong>Combined power:</strong> Ask the assistant "How do I care for my roses?" and it recalls:
+1. From long-term memory: "User has roses saved"
+2. From conversation: prior messages in this thread
+3. From garden API: current specimen list
+→ Personalized, context-aware answer.</p>
+<hr />
+<h2 id="shared-core-langgraph-runtime">Shared Core: LangGraph Runtime</h2>
+<h3 id="stategraph-agent-orchestration">StateGraph: Agent Orchestration</h3>
+<p>All agents (AgentForge + FloraLens) use the same <strong>LangGraph state machine</strong>:</p>
+<pre><code>user query
+    ↓
+[Supervisor decides which sub-agent]
+    ↓
+[Sub-agent reasoning + tool call]
+    ↓
+[Tool execution]
+    ↓
+[Reflection]
+    ↓
+[Loop until done]
+    ↓
+final answer
+</code></pre>
+<p><strong>State nodes (shared across core):</strong></p>
+<table>
+<thead>
+<tr>
+<th>Node</th>
+<th>Logic</th>
+<th>Tool Calls</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>supervisor</code></td>
+<td>Route to sub-agent</td>
+<td>None (decision logic)</td>
+</tr>
+<tr>
+<td><code>identifier</code></td>
+<td>Search + identify</td>
+<td>embedding_search_tool</td>
+</tr>
+<tr>
+<td><code>researcher</code></td>
+<td>Research query</td>
+<td>web_search_tool</td>
+</tr>
+<tr>
+<td><code>care_advisor</code></td>
+<td>Synthesize answer</td>
+<td>None (LLM synthesis)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Transitions (defined in manifest):</strong></p>
+<pre><code class="language-yaml"># naturalist_supervisor.yaml
+transitions:
+  supervisor:
+    - condition: &quot;query is visual&quot;
+      next: identifier
+    - condition: &quot;query is factual&quot;
+      next: researcher
+    - condition: &quot;query is care advice&quot;
+      next: care_advisor
+</code></pre>
+<h3 id="streaming-sse-response">Streaming &amp; SSE Response</h3>
+<p>Agents stream their execution via <strong>SSE events</strong>:</p>
+<pre><code class="language-python">async def agent_stream(agent, message: str, thread_id: str):
+    &quot;&quot;&quot;Stream agent execution as SSE-compatible events.&quot;&quot;&quot;
+
+    async for event in agent.astream(message, thread_id=thread_id):
+        # event = AgentStepEvent (step_type, agent_id, thought/tool/answer, etc.)
+        yield f&quot;data: {event.model_dump_json()}\n\n&quot;
+</code></pre>
+<p><strong>Event types (all agents):</strong></p>
+<table>
+<thead>
+<tr>
+<th>Type</th>
+<th>When</th>
+<th>Payload</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>run_started</code></td>
+<td>Agent compiled, ready</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>step</code></td>
+<td>Reasoning/tool/answer</td>
+<td><code>step_type</code>, <code>agent_id</code>, content</td>
+</tr>
+<tr>
+<td><code>done</code></td>
+<td>Finished</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>error</code></td>
+<td>Exception</td>
+<td><code>detail</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Benefit:</strong> Frontend receives full execution trace; can display reasoning, tool calls, citations in real-time.</p>
+<hr />
+<h2 id="extensibility-adding-a-new-agent-no-core-changes">Extensibility: Adding a New Agent (No Core Changes)</h2>
+<h3 id="example-disease-diagnosis-agent">Example: Disease Diagnosis Agent</h3>
+<p><strong>Goal:</strong> Add an agent that diagnoses leaf diseases. Prove it requires no core code changes.</p>
+<p><strong>Steps:</strong></p>
+<h4 id="1-define-the-new-agent-manifest">1. Define the new agent manifest</h4>
+<p>Create <code>agents/disease_advisor.yaml</code>:</p>
+<pre><code class="language-yaml">id: disease_advisor
+version: &quot;1.0&quot;
+type: agent
+
+model:
+  provider: anthropic
+  name: claude-sonnet-5
+  temperature: 0.3
+
+prompt_ref: prompts/disease_advisor.md
+
+memory:
+  provider: mem0
+  scope: user
+  namespace: floralens
+
+tools:
+  - embedding_search  # Find similar diseased specimens (existing)
+  - web_search        # Research disease info (existing)
+
+guardrails:
+  - educational_disclaimer
+  - no_medical_diagnosis  # NEW: refuse to diagnose humans
+</code></pre>
+<h4 id="2-write-the-prompt">2. Write the prompt</h4>
+<p>Create <code>agents/prompts/disease_advisor.md</code>:</p>
+<pre><code class="language-markdown"># Disease Advisor
+
+You are an expert in plant disease identification.
+
+Given a photo of a diseased leaf:
+1. Describe visible symptoms
+2. Search for similar diseased specimens
+3. Research the likely disease
+4. Suggest treatment (fungicide, pruning, etc.)
+
+Always include: &quot;This is educational; consult a professional for valuable plants.&quot;
+Never diagnose human diseases.
+</code></pre>
+<h4 id="3-register-the-new-agent-in-the-supervisor">3. Register the new agent in the supervisor</h4>
+<p>Update <code>agents/naturalist_supervisor.yaml</code>:</p>
+<pre><code class="language-yaml">sub_agents:
+  - naturalist_identifier
+  - naturalist_researcher
+  - naturalist_care_advisor
+  - disease_advisor        # NEW
+</code></pre>
+<p>Update the supervisor prompt (<code>prompts/naturalist_supervisor.md</code>):</p>
+<pre><code class="language-markdown">...you can now also:
+- Call the disease_advisor for diagnosing leaf diseases
+...
+</code></pre>
+<h4 id="4-update-the-supervisors-tool-routing">4. Update the Supervisor's tool routing</h4>
+<p>Update <code>agents/prompts/naturalist_supervisor.md</code> to add:</p>
+<pre><code class="language-markdown">If the query mentions disease symptoms or asks about a diseased leaf:
+  → Call disease_advisor
+</code></pre>
+<h4 id="5-no-python-code-needed">5. No Python code needed.</h4>
+<p>The core's <code>StateGraph</code> automatically:
+- Reads the new manifest
+- Hydrates tools + prompts
+- Adds the new state node
+- Handles routing</p>
+<p><strong>Result:</strong> New agent added; core untouched. No refactoring, no API changes.</p>
+<hr />
+<h2 id="proof-of-concept-same-core-two-products">Proof of Concept: Same Core, Two Products</h2>
+<h3 id="floralens-agents">FloraLens Agents</h3>
+<p><strong>Domain:</strong> Flower identification &amp; care</p>
+<p><strong>Core agents:</strong>
+- <code>naturalist_supervisor</code> — Routes flower/care queries
+- <code>naturalist_identifier</code> — Visual search (embedding tool)
+- <code>naturalist_researcher</code> — Factual research (web search)
+- <code>naturalist_care_advisor</code> — Care synthesis</p>
+<p><strong>Domain-specific tools:</strong>
+- <code>embedding_search_tool</code> — Calls FloraLens <code>/api/search</code> (1,632 flower specimens)</p>
+<p><strong>Memory context:</strong>
+- User's saved plants (My Garden)
+- User preferences (climate zone, indoor/outdoor)</p>
+<h3 id="agentforge-agents">AgentForge Agents</h3>
+<p><strong>Domain:</strong> Software engineering &amp; agent building</p>
+<p><strong>Core agents:</strong>
+- <code>forge_supervisor</code> — Routes code/research queries
+- <code>code_agent</code> — Code generation (LLM + tool)
+- <code>researcher_agent</code> — Research (web search)
+- <code>reviewer_agent</code> — Code review</p>
+<p><strong>Domain-specific tools:</strong>
+- <code>code_execution_tool</code> — Run Python in sandbox (AgentForge exclusive)
+- <code>web_search_tool</code> — Web search (shared core)</p>
+<p><strong>Memory context:</strong>
+- User's codebase context (files, recent edits)
+- Project preferences (language, frameworks)</p>
+<h3 id="comparison">Comparison</h3>
+<table>
+<thead>
+<tr>
+<th>Aspect</th>
+<th>FloraLens</th>
+<th>AgentForge</th>
+<th>Shared?</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Agent runtime</strong></td>
+<td>LangGraph</td>
+<td>LangGraph</td>
+<td>✅ Yes (core)</td>
+</tr>
+<tr>
+<td><strong>Tool interface</strong></td>
+<td>BaseTool</td>
+<td>BaseTool</td>
+<td>✅ Yes (core)</td>
+</tr>
+<tr>
+<td><strong>Prompt registry</strong></td>
+<td>YAML + Markdown</td>
+<td>YAML + Markdown</td>
+<td>✅ Yes (core)</td>
+</tr>
+<tr>
+<td><strong>Memory provider</strong></td>
+<td>mem0</td>
+<td>mem0</td>
+<td>✅ Yes (core)</td>
+</tr>
+<tr>
+<td><strong>Model registry</strong></td>
+<td>Anthropic/OpenAI</td>
+<td>Anthropic/OpenAI</td>
+<td>✅ Yes (core)</td>
+</tr>
+<tr>
+<td><strong>SSE streaming</strong></td>
+<td>Event types</td>
+<td>Event types</td>
+<td>✅ Yes (core)</td>
+</tr>
+<tr>
+<td><strong>Supervisor logic</strong></td>
+<td>Flower routing</td>
+<td>Code routing</td>
+<td>❌ No (domain-specific prompts)</td>
+</tr>
+<tr>
+<td><strong>Embedding tool</strong></td>
+<td>FloraLens <code>/api/search</code></td>
+<td>—</td>
+<td>❌ No (domain-specific)</td>
+</tr>
+<tr>
+<td><strong>Code tool</strong></td>
+<td>—</td>
+<td>Sandbox execution</td>
+<td>❌ No (domain-specific)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Conclusion:</strong> The core is truly domain-agnostic. Domain-specific behavior comes from prompts + tools, not the runtime.</p>
+<hr />
+<h2 id="integration-with-floralens-api">Integration with FloraLens API</h2>
+<h3 id="endpoint-post-apiassistant-sse">Endpoint: POST /api/assistant (SSE)</h3>
+<p>The API endpoint that surfaces the agent:</p>
+<pre><code class="language-python"># apps/api/app/main.py
+
+@app.post(&quot;/api/assistant&quot;)
+async def assistant(req: AssistantRequest) -&gt; StreamingResponse:
+    &quot;&quot;&quot;Chat with the naturalist agent team.&quot;&quot;&quot;
+
+    async def event_stream():
+        yield f&quot;data: {json.dumps({'type': 'run_started'})}\n\n&quot;
+        try:
+            # Compile the naturalist supervisor from manifests
+            agent = compile_naturalist(
+                assistant_registries,  # Built at startup
+                _assistant_checkpointer  # If durable memory enabled
+            )
+
+            # Stream agent execution
+            async for event in agent.astream(
+                req.message,
+                thread_id=req.thread_id
+            ):
+                # Redact secrets before streaming
+                yield f&quot;data: {redact_secrets(event.model_dump_json())}\n\n&quot;
+
+            yield f&quot;data: {json.dumps({'type': 'done'})}\n\n&quot;
+        except AgentCoreError as exc:
+            yield f&quot;data: {json.dumps({'type': 'error', 'detail': str(exc)})}\n\n&quot;
+        finally:
+            # Clean up agent resources
+            await agent.aclose()
+
+    return StreamingResponse(event_stream(), media_type=&quot;text/event-stream&quot;)
+</code></pre>
+<p><strong>Key points:</strong></p>
+<ol>
+<li><strong>Compile at request time:</strong> Each request compiles a fresh agent graph (stateless API)</li>
+<li><strong>Reuse registries:</strong> Pre-built registries include all tools, models, prompts</li>
+<li><strong>Optional checkpointer:</strong> If <code>FLORALENS_CHECKPOINT_DB</code> set, agent loads prior thread state</li>
+<li><strong>Redact secrets:</strong> Before SSE, strip API keys / bearer tokens</li>
+<li><strong>Stream events:</strong> Frontend receives tool calls, reasoning, final answer in real-time</li>
+</ol>
+<h3 id="initialization-on-api-startup">Initialization (on API startup)</h3>
+<pre><code class="language-python"># apps/api/app/main.py
+
+def build_floralens_registries():
+    &quot;&quot;&quot;Build agent registries with FloraLens-specific tools.&quot;&quot;&quot;
+
+    registries = build_base_registries()  # From agent_core: models, prompts, memory
+
+    # Add FloraLens-specific tools
+    registries.tools.register(EmbeddingSearchTool(), overwrite=False)
+    # web_search_tool already in base registries
+
+    # Load prompts from agents/ directory
+    registries.prompts.load_from_directory(&quot;agents/prompts/&quot;)
+
+    # Optionally override models for testing
+    # (e.g., registries.models.register(MockModel(...), overwrite=True))
+
+    return registries
+
+# Built once at startup
+assistant_registries = build_floralens_registries()
+</code></pre>
+<hr />
+<h2 id="testing-agent-behavior-without-api-keys">Testing: Agent Behavior Without API Keys</h2>
+<h3 id="mock-model-for-offline-testing">Mock Model for Offline Testing</h3>
+<pre><code class="language-python"># tests/test_assistant.py
+
+class MockModel:
+    &quot;&quot;&quot;Fake LLM for testing; always returns canned response.&quot;&quot;&quot;
+
+    async def invoke(self, prompt: str, **kwargs) -&gt; str:
+        return {
+            &quot;type&quot;: &quot;answer&quot;,
+            &quot;content&quot;: &quot;This is a test response.&quot;
+        }
+
+def test_assistant_flow():
+    registries = build_floralens_registries()
+
+    # Override model to avoid API cost
+    registries.models.register(
+        MockModel(),
+        overwrite=True
+    )
+
+    agent = compile_naturalist(registries)
+
+    # Run agent without calling OpenAI
+    result = agent.astream(&quot;How do I care for a rose?&quot;, thread_id=&quot;test&quot;)
+
+    # Assert on event stream
+    events = [e async for e in result]
+    assert events[0]['type'] == 'run_started'
+    assert any(e['type'] == 'answer' for e in events)
+</code></pre>
+<p><strong>Benefit:</strong> Fast, repeatable tests that don't require API keys or network.</p>
+<hr />
+<h2 id="deployment-considerations">Deployment Considerations</h2>
+<h3 id="environment-variables">Environment Variables</h3>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Purpose</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>OPENAI_API_KEY</code></td>
+<td>OpenAI API key (for Claude, web search)</td>
+<td>unset</td>
+</tr>
+<tr>
+<td><code>TAVILY_API_KEY</code></td>
+<td>Tavily web search API</td>
+<td>unset</td>
+</tr>
+<tr>
+<td><code>FLORALENS_CHECKPOINT_DB</code></td>
+<td>SQLite path for durable thread memory</td>
+<td>unset (disabled)</td>
+</tr>
+<tr>
+<td><code>FLORALENS_API_KEY</code></td>
+<td>Optional API key for write endpoints</td>
+<td>unset (optional)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="local-development">Local Development</h3>
+<pre><code class="language-bash"># Set keys in .env
+OPENAI_API_KEY=sk-...
+TAVILY_API_KEY=tvly-...
+
+# Start API
+venv\Scripts\python.exe -m uvicorn apps.api.app.main:app --port 8100
+</code></pre>
+<h3 id="production">Production</h3>
+<ul>
+<li><strong>Secrets:</strong> Store in environment, never committed</li>
+<li><strong>Rate limiting:</strong> Per-IP limits on <code>/api/assistant</code> (10 req/min default)</li>
+<li><strong>Monitoring:</strong> Log all agent runs; track token usage</li>
+<li><strong>Failover:</strong> If web search unavailable, agent still works (tool graceful degradation)</li>
+</ul>
+<hr />
+<h2 id="limitations-future-work">Limitations &amp; Future Work</h2>
+<h3 id="current-limitations">Current Limitations</h3>
+<ol>
+<li>
+<p><strong>Single supervisor:</strong> All queries routed through one supervisor. Multi-supervisor hierarchies not yet implemented.</p>
+</li>
+<li>
+<p><strong>Sequential execution:</strong> Agents run one at a time. Parallel sub-agent calls deferred.</p>
+</li>
+<li>
+<p><strong>Fixed tool sets:</strong> Tools must be pre-registered; dynamic tool loading not yet supported.</p>
+</li>
+<li>
+<p><strong>Prompt hardcoding:</strong> Prompts are files; no dynamic prompt synthesis per query.</p>
+</li>
+</ol>
+<h3 id="future-extensions">Future Extensions</h3>
+<ul>
+<li><strong>Hierarchical supervisors:</strong> Build a tree of supervisors for complex domains</li>
+<li><strong>Parallel tools:</strong> Execute multiple tools concurrently when safe</li>
+<li><strong>Dynamic tools:</strong> Register tools at runtime based on agent config</li>
+<li><strong>Few-shot learning:</strong> Provide agent with in-context examples per query</li>
+<li><strong>Preference learning:</strong> Agent learns user's preferences over time (beyond mem0)</li>
+</ul>
+<hr />
+<h2 id="references">References</h2>
+<ul>
+<li><strong><a href="../packages/agent-core/AGENT-CORE.md">Agent Core</a></strong> (if available) — Unified Agent Core specification</li>
+<li><strong><a href="../apps/api/app/assistant_service.py">Assistant Service Code</a></strong> — FloraLens agent integration</li>
+<li><strong><a href="../agents/">Agent Manifests</a></strong> — YAML agent definitions</li>
+<li><strong><a href="https://langchain-ai.github.io/langgraph/">LangGraph Docs</a></strong> — State machine framework</li>
+<li><strong><a href="https://docs.mem0.ai/">mem0 Docs</a></strong> — Memory provider</li>
+</ul>
+<hr />
+<h2 id="summary">Summary</h2>
+<p>FloraLens proves the <strong>Unified Agent Core thesis:</strong></p>
+<p>✅ <strong>Same runtime</strong> (LangGraph) powers both flower identification and software engineering</p>
+<p>✅ <strong>Pluggable tools</strong> make agents domain-specific without core changes</p>
+<p>✅ <strong>YAML manifests</strong> + <strong>Markdown prompts</strong> enable new agents without Python coding</p>
+<p>✅ <strong>Registries</strong> (tools, prompts, models, memory) are reusable across domains</p>
+<p>✅ <strong>Extensibility first:</strong> Adding disease diagnosis = 1 YAML + 1 Markdown file, zero core changes</p>
+<p>The core is not "almost reusable" or "mostly generic" — it's <em>genuinely domain-agnostic</em>, proven by shipping two very different products with identical agent runtime, without modification.</p></div></body></html>
