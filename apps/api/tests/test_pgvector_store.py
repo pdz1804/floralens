@@ -131,3 +131,40 @@ class TestPgVectorStoreIntegration:
         finally:
             self._drop(store_a, table)
             store_b.close()
+
+    def test_ingest_replaces_atomically_and_matches_count(self):
+        store, table = self._make_store()
+        try:
+            store.add("stale", np.array([0.0, 0.0, 0.0, 1.0]))  # pre-existing row
+            records = [
+                ("a", np.array([1.0, 0.0, 0.0, 0.0]), {"label_name": "a"}),
+                ("b", np.array([0.0, 1.0, 0.0, 0.0]), {"label_name": "b"}),
+            ]
+            store.ingest(records)
+            # ingest is a full replace for this model_version: exactly `records`.
+            assert store.count() == len(records)
+            ids = {r.id for r in store.query(np.array([1.0, 0.0, 0.0, 0.0]), top_k=10)}
+            assert ids == {"a", "b"}  # 'stale' gone
+        finally:
+            self._drop(store, table)
+
+    def test_ties_are_broken_by_id(self):
+        store, table = self._make_store()
+        try:
+            # Identical vectors => identical cosine distance; ordering must fall
+            # back to id ascending, deterministically (parity with in-memory).
+            for vid in ("c", "a", "b"):
+                store.add(vid, np.array([1.0, 0.0, 0.0, 0.0]))
+            results = store.query(np.array([1.0, 0.0, 0.0, 0.0]), top_k=3)
+            assert [r.id for r in results] == ["a", "b", "c"]
+        finally:
+            self._drop(store, table)
+
+    def test_non_positive_top_k_returns_empty(self):
+        store, table = self._make_store()
+        try:
+            store.add("a", np.array([1.0, 0.0, 0.0, 0.0]))
+            assert store.query(np.array([1.0, 0.0, 0.0, 0.0]), top_k=0) == []
+            assert store.query(np.array([1.0, 0.0, 0.0, 0.0]), top_k=-1) == []
+        finally:
+            self._drop(store, table)

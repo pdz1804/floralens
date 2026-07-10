@@ -160,9 +160,14 @@ def _build_gallery_records() -> tuple[str, list[tuple[str, np.ndarray, dict[str,
 def _build_pgvector_store(
     model_version: str, records: list[tuple[str, np.ndarray, dict[str, Any]]]
 ) -> VectorIndex:
-    """Construct the pgvector-backed store and ingest `records` if it's
-    currently empty for this model_version (so a second worker process
-    reuses rows a first worker already ingested instead of re-inserting).
+    """Construct the pgvector-backed store and ingest `records` unless the
+    table already holds exactly this model_version's full gallery (so a second
+    worker reuses a first worker's rows instead of re-inserting).
+
+    Gating on the exact expected count — not merely "non-empty" — means a
+    previously *partial* ingest is detected and redone rather than mistaken for
+    a complete gallery. Ingestion is a single atomic transaction (see
+    `PgVectorStore.ingest`), so it can't itself leave a partial table.
 
     Raises on any connection/import error — `get_gallery_store` catches that
     and falls back to the in-memory store, per the additive/opt-in contract.
@@ -171,9 +176,8 @@ def _build_pgvector_store(
 
     dim = records[0][1].shape[-1] if records else 1024
     store = PgVectorStore(model_version, settings.database_url, dim=dim)
-    if store.count() == 0:
-        for specimen_id, vector, meta in records:
-            store.add(specimen_id, vector, meta)
+    if store.count() != len(records):
+        store.ingest(records)
     return store
 
 

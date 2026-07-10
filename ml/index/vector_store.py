@@ -109,7 +109,10 @@ class VectorStore:
             for i in range(len(self._ids))
             if self._ids[i] not in exclude_ids
         ]
-        candidates.sort(key=lambda pair: pair[1], reverse=True)
+        # Sort by score descending, breaking ties by id ascending so the order
+        # is deterministic and matches the pgvector backend's `ORDER BY
+        # <distance>, id` — both backends return the same top_k on ties.
+        candidates.sort(key=lambda pair: (-pair[1], pair[0]))
         top = candidates[:top_k]
         return [
             SearchResult(id=id_, score=score, metadata=self._metadata[id_])
