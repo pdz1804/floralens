@@ -26,6 +26,8 @@ import base64
 import binascii
 import json
 import logging
+import sys
+from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
@@ -35,6 +37,7 @@ from agent_core import sqlite_checkpointer
 from agent_core.errors import AgentCoreError
 
 from apps.api.app import garden_service, memory_service
+from apps.api.app.env_loader import load_env_files
 from apps.api.app.assistant_service import build_floralens_registries, compile_naturalist
 from apps.api.app.auth import require_api_key
 from apps.api.app.config import settings
@@ -62,6 +65,16 @@ for _handler in logging.getLogger().handlers:
     _handler.addFilter(_redacting_filter)
 
 app = FastAPI(title="FloraLens API", version="0.1.0")
+
+# Local-dev convenience: the naturalist assistant reuses agent_core + its OpenAI/
+# Tavily keys, but FloraLens has no .env of its own, so a plain `uvicorn` would
+# start keyless and only fail on the first assistant run. Load FloraLens's own
+# .env first (if any), then the sibling agentforge/.env for the shared keys.
+# Skipped under pytest so tests never inherit a developer's .env; already-set
+# env vars always win.
+if "pytest" not in sys.modules:
+    _fl_root = Path(__file__).resolve().parents[3]
+    load_env_files(_fl_root / ".env", _fl_root.parent / "agentforge" / ".env")
 
 # Built once at startup; tests may swap in a fake model provider via
 # `assistant_registries.models.register(..., overwrite=True)` to run the
