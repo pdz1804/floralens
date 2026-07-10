@@ -44,6 +44,30 @@ def test_remove_unknown_specimen_404():
     assert resp.status_code == 404
 
 
+def test_specimen_catalog_recovers_after_metadata_appears(tmp_path, monkeypatch):
+    # Cold start: the API touched the catalog before the embeddings pipeline
+    # wrote metadata.json. The empty miss must NOT be cached, or every later
+    # save would 404 for the process lifetime even once the file exists.
+    import types
+
+    # settings is a frozen dataclass — swap the whole object for a stand-in
+    # exposing just the field _specimen_catalog reads.
+    monkeypatch.setattr(
+        garden_service, "settings", types.SimpleNamespace(embeddings_cache_dir=str(tmp_path))
+    )
+    garden_service.reset_specimen_catalog_cache()
+    try:
+        assert garden_service.resolve_label_name("sid-1") is None  # not built yet
+
+        meta = {"specimens": {"sid-1": {"label_name": "Test Rose"}}}
+        (tmp_path / "metadata.json").write_text(json.dumps(meta), encoding="utf-8")
+
+        # A plain lru_cache would have frozen the empty {} — this must recover.
+        assert garden_service.resolve_label_name("sid-1") == "Test Rose"
+    finally:
+        garden_service.reset_specimen_catalog_cache()
+
+
 def test_garden_crud_roundtrip(monkeypatch):
     # Bypass the real dataset-metadata lookup so this test never depends on
     # the embeddings cache being built.

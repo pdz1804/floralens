@@ -52,7 +52,13 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 # Scrubs secrets (API keys, bearer tokens, ...) from every log record
 # process-wide, in case one ends up in an exception message (PRD Phase 9).
-logging.getLogger().addFilter(RedactingLogFilter())
+# The filter must sit on the HANDLERS, not the root logger: a logger's own
+# filters only run for records logged directly on it, so records propagated
+# up from named child loggers (logging.getLogger(__name__)) bypass a
+# root-logger filter but still pass through the root's handlers.
+_redacting_filter = RedactingLogFilter()
+for _handler in logging.getLogger().handlers:
+    _handler.addFilter(_redacting_filter)
 
 app = FastAPI(title="FloraLens API", version="0.1.0")
 
@@ -282,31 +288,40 @@ async def assistant(req: AssistantRequest) -> StreamingResponse:
     """
 
     async def event_stream():
+        # Bound before the compile try so the finally can release it even if
+        # compilation failed. A fresh agent is compiled per request, so without
+        # aclose every run with a durable checkpointer set would leak a sqlite
+        # connection + its background thread (no-op in the default setup).
+        agent = None
         yield f"data: {json.dumps({'type': 'run_started'})}\n\n"
         try:
-            agent = compile_naturalist(assistant_registries)
-        except AgentCoreError as exc:
-            yield _assistant_error_event(str(exc))
-            return
-        except Exception:
-            logger.exception("failed to compile the naturalist agent")
-            yield _assistant_error_event("failed to prepare the naturalist assistant")
-            return
+            try:
+                agent = compile_naturalist(assistant_registries)
+            except AgentCoreError as exc:
+                yield _assistant_error_event(str(exc))
+                return
+            except Exception:
+                logger.exception("failed to compile the naturalist agent")
+                yield _assistant_error_event("failed to prepare the naturalist assistant")
+                return
 
-        try:
-            async for event in agent.astream(req.message, thread_id=req.thread_id):
-                # Redact before it ever leaves the process: a tool/model step
-                # could echo back a key from its input or a misconfigured env.
-                yield f"data: {redact_secrets(event.model_dump_json())}\n\n"
-        except AgentCoreError as exc:
-            yield _assistant_error_event(str(exc))
-            return
-        except Exception:
-            logger.exception("naturalist assistant run failed")
-            yield _assistant_error_event("internal error during assistant run")
-            return
+            try:
+                async for event in agent.astream(req.message, thread_id=req.thread_id):
+                    # Redact before it ever leaves the process: a tool/model step
+                    # could echo back a key from its input or a misconfigured env.
+                    yield f"data: {redact_secrets(event.model_dump_json())}\n\n"
+            except AgentCoreError as exc:
+                yield _assistant_error_event(str(exc))
+                return
+            except Exception:
+                logger.exception("naturalist assistant run failed")
+                yield _assistant_error_event("internal error during assistant run")
+                return
 
-        yield f"data: {json.dumps({'type': 'done'})}\n\n"
+            yield f"data: {json.dumps({'type': 'done'})}\n\n"
+        finally:
+            if agent is not None:
+                await agent.aclose()
 
     return StreamingResponse(
         event_stream(),

@@ -101,18 +101,30 @@ def remove_specimen(specimen_id: str) -> bool:
 # (which also loads the full embeddings.npz vector array) since only the
 # id -> label_name mapping is needed to validate a save request.
 # --------------------------------------------------------------------------- #
-@functools.lru_cache(maxsize=1)
+# Cache only a SUCCESSFULLY loaded catalog. A plain lru_cache would memoize the
+# empty {} returned when metadata.json doesn't exist yet (e.g. the API started
+# before the embeddings pipeline wrote it) — and then every later save would
+# 404 for the process lifetime even after the file appears. Caching only the
+# populated result lets a cold start recover on the next call.
+_catalog: dict[str, str] | None = None
+
+
 def _specimen_catalog() -> dict[str, str]:
+    global _catalog
+    if _catalog is not None:
+        return _catalog
     meta_path = Path(settings.embeddings_cache_dir) / "metadata.json"
     if not meta_path.exists():
-        return {}
+        return {}  # not built yet — do NOT cache the miss
     metadata = json.loads(meta_path.read_text(encoding="utf-8"))
-    return {sid: m["label_name"] for sid, m in metadata.get("specimens", {}).items()}
+    _catalog = {sid: m["label_name"] for sid, m in metadata.get("specimens", {}).items()}
+    return _catalog
 
 
 def reset_specimen_catalog_cache() -> None:
     """Test helper: clears the cached specimen catalog singleton."""
-    _specimen_catalog.cache_clear()
+    global _catalog
+    _catalog = None
 
 
 def resolve_label_name(specimen_id: str) -> str | None:

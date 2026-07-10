@@ -85,6 +85,19 @@ export function AssistantPage() {
 
       try {
         await streamAssistant(trimmed, threadIdRef.current, onEvent, ctrl.signal);
+        // The stream can end (its `done` marker) without ever emitting an
+        // answer/error/limit — e.g. the agent stops after only trace steps.
+        // Without this the bubble would spin on "Thinking…" forever, so close
+        // out any message still marked streaming into a terminal state.
+        patch((m) =>
+          m.status === "streaming"
+            ? {
+                ...m,
+                status: m.text ? "done" : "error",
+                text: m.text || "The assistant finished without an answer. Please try again.",
+              }
+            : m,
+        );
       } catch (e) {
         if ((e as Error).name !== "AbortError") {
           const message = (e as Error).message;

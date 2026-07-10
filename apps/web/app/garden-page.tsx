@@ -83,12 +83,19 @@ export function GardenPage() {
   }
 
   async function onRemove(specimenId: string) {
-    const prev = items;
+    const removed = items.find((it) => it.specimen_id === specimenId);
     setItems((cur) => cur.filter((it) => it.specimen_id !== specimenId)); // optimistic
     try {
       await removeFromGarden(specimenId);
     } catch (e) {
-      setItems(prev); // resync on failure
+      // Re-insert ONLY the failed item via a functional update — restoring a
+      // whole pre-removal snapshot would resurrect a different item that a
+      // concurrent onRemove had already successfully deleted.
+      if (removed) {
+        setItems((cur) =>
+          cur.some((it) => it.specimen_id === specimenId) ? cur : [removed, ...cur],
+        );
+      }
       setError((e as Error).message);
     }
   }

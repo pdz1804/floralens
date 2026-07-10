@@ -138,9 +138,12 @@ export async function getGalaxy(signal?: AbortSignal): Promise<GalaxyData> {
 // (Phase 3b) is present. Prefers the server's calibrated band/confidence.
 export function bandFor(r: SearchResult): "high" | "medium" | "low" {
   if (r.band) return r.band;
-  const v = r.confidence ?? r.score;
-  if (v >= 0.85) return "high";
-  if (v >= 0.7) return "medium";
+  // Band off the SAME rounded percentage the card displays, so a result can
+  // never render "85%" while tagged/grouped medium (0.849 rounds to 85% but
+  // is < 0.85). Grouping and the per-card badge both call this, staying in sync.
+  const pct = Math.round((r.confidence ?? r.score) * 100);
+  if (pct >= 85) return "high";
+  if (pct >= 70) return "medium";
   return "low";
 }
 
@@ -186,24 +189,29 @@ export async function streamAssistant(
   const reader = r.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+  const processChunk = (chunk: string) => {
+    const line = chunk.trim();
+    if (!line.startsWith("data:")) return;
+    const payload = line.slice("data:".length).trim();
+    if (!payload) return;
+    try {
+      onEvent(JSON.parse(payload) as AssistantEvent);
+    } catch {
+      /* skip a malformed SSE line rather than aborting the whole stream */
+    }
+  };
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
     const chunks = buffer.split("\n\n");
     buffer = chunks.pop() ?? "";
-    for (const chunk of chunks) {
-      const line = chunk.trim();
-      if (!line.startsWith("data:")) continue;
-      const payload = line.slice("data:".length).trim();
-      if (!payload) continue;
-      try {
-        onEvent(JSON.parse(payload) as AssistantEvent);
-      } catch {
-        /* skip a malformed SSE line rather than aborting the whole stream */
-      }
-    }
+    for (const chunk of chunks) processChunk(chunk);
   }
+  // Flush the multibyte tail + any final frame not terminated by a blank line,
+  // so the terminal event (often `answer`/`done`) is never silently dropped.
+  buffer += decoder.decode();
+  for (const chunk of buffer.split("\n\n")) processChunk(chunk);
 }
 
 // Extracts unique http(s) URLs from an assistant answer, trimming trailing
