@@ -17,6 +17,11 @@ uvicorn[standard]==0.34.0
 pydantic==2.10.5
 python-multipart==0.0.20
 pytest==8.3.4
+# Per-user auth scaffold (apps/api/app/auth.py, opt-in via FLORALENS_JWT_SECRET):
+# signs/verifies the HS256 bearer tokens resolve_user/issue_token use. Imported
+# lazily inside those functions -- never required just to import the app or run
+# with auth off (the default).
+PyJWT==2.13.0
 numpy==1.26.4
 pillow==11.1.0
 scikit-learn==1.6.1

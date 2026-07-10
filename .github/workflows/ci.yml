@@ -41,7 +41,7 @@ jobs:
           pip install fastapi==0.115.6 "uvicorn[standard]==0.34.0" pydantic==2.10.5 \
             python-multipart==0.0.20 pytest==8.3.4 numpy==1.26.4 pillow==11.1.0 \
             scikit-learn==1.6.1 imagehash==4.3.1 requests==2.32.3 datasets==5.0.0 \
-            opencv-python-headless==4.10.0.84 transformers==5.13.0
+            opencv-python-headless==4.10.0.84 transformers==5.13.0 PyJWT==2.13.0
           pip install mlflow==2.19.0
           # torch/torchvision/open-clip-torch are installed separately (see
           # README "Setup"), not pinned in requirements.txt, because the dev
@@ -186,7 +186,7 @@ jobs:
           pip install fastapi==0.115.6 "uvicorn[standard]==0.34.0" pydantic==2.10.5 \
             python-multipart==0.0.20 numpy==1.26.4 pillow==11.1.0 \
             scikit-learn==1.6.1 imagehash==4.3.1 requests==2.32.3 datasets==5.0.0 \
-            opencv-python-headless==4.10.0.84 transformers==5.13.0
+            opencv-python-headless==4.10.0.84 transformers==5.13.0 PyJWT==2.13.0
           pip install mlflow==2.19.0
           pip install torch==2.7.1 torchvision==0.22.1 --index-url https://download.pytorch.org/whl/cpu
           pip install open-clip-torch==2.31.0
