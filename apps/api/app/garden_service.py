@@ -58,33 +58,84 @@ class SpecimenNotFoundError(ValueError):
     """Raised when a specimen_id has no known entry in the dataset metadata."""
 
 
-def _ensure_schema(conn: sqlite3.Connection) -> None:
-    """Idempotent migration, safe on an existing `garden.db`.
+def _table_exists(conn: sqlite3.Connection, name: str) -> bool:
+    return (
+        conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)
+        ).fetchone()
+        is not None
+    )
 
-    Fresh DB (no `garden` table yet): just create the current composite-PK
-    schema. Existing DB on the OLD schema (`specimen_id` PK, no `user_id`
-    column — detected via `PRAGMA table_info`, never by trapping the insert
-    error): rebuild the table under the new schema and backfill every
-    existing row as `DEFAULT_USER`, so pre-auth-scaffold data is preserved
-    and now owned by the single-user bucket. Already-migrated DBs (a
-    `user_id` column present) are a no-op on every call.
+
+def _needs_schema_work(conn: sqlite3.Connection) -> bool:
+    """Fast, lock-free check: is any create/migrate/recovery work outstanding?
+
+    True when `garden` is missing, still on the old (`user_id`-less) schema, or
+    a `garden_old` leftover from a previously aborted migration is present.
     """
     cols = conn.execute("PRAGMA table_info(garden)").fetchall()
-    if not cols:
-        conn.execute(_SCHEMA)
-        return
-    col_names = {c[1] for c in cols}
-    if "user_id" in col_names:
-        return  # already on the composite-PK schema
-    conn.execute("ALTER TABLE garden RENAME TO garden_old")
-    conn.execute(_SCHEMA)
-    conn.execute(
-        "INSERT INTO garden (user_id, specimen_id, label_name, saved_at) "
-        "SELECT ?, specimen_id, label_name, saved_at FROM garden_old",
-        (DEFAULT_USER,),
-    )
-    conn.execute("DROP TABLE garden_old")
-    conn.commit()
+    has_user_id = bool(cols) and "user_id" in {c[1] for c in cols}
+    return (not has_user_id) or _table_exists(conn, "garden_old")
+
+
+def _ensure_schema(conn: sqlite3.Connection) -> None:
+    """Idempotent, crash-atomic, concurrency-safe migration for `garden.db`.
+
+    Fresh DB → create the composite-PK schema. Old schema (`specimen_id` PK, no
+    `user_id`) → rebuild and backfill every row as `DEFAULT_USER` so
+    pre-scaffold data is preserved under the single-user bucket. Already
+    migrated → no-op.
+
+    The whole rebuild runs inside one `BEGIN IMMEDIATE` transaction so it is
+    all-or-nothing: a crash or error mid-migration rolls back to the original
+    table instead of stranding rows in `garden_old` (SQLite supports
+    transactional DDL). The write lock is taken *before* re-checking the schema,
+    so two threads hitting an unmigrated DB at once can't both rebuild — the one
+    that loses the lock re-reads the finished schema and no-ops. A `garden_old`
+    left by an older, non-atomic build is recovered (its rows are merged back)
+    rather than silently ignored.
+    """
+    if not _needs_schema_work(conn):
+        return  # common path: already migrated, no leftover — no lock needed
+    # sqlite3's legacy isolation mode implicitly commits before DDL, which would
+    # defeat atomicity; switch to manual control and drive the transaction here.
+    prev_isolation = conn.isolation_level
+    conn.isolation_level = None
+    try:
+        conn.execute("BEGIN IMMEDIATE")  # acquire the write lock, then re-check
+        cols = conn.execute("PRAGMA table_info(garden)").fetchall()
+        col_names = {c[1] for c in cols}
+        leftover = _table_exists(conn, "garden_old")
+        if not cols:
+            conn.execute(_SCHEMA)
+        elif "user_id" not in col_names:
+            # Old schema → rebuild. Drop any stale leftover first (its data is a
+            # duplicate of what's about to be renamed out of `garden`).
+            conn.execute("DROP TABLE IF EXISTS garden_old")
+            conn.execute("ALTER TABLE garden RENAME TO garden_old")
+            conn.execute(_SCHEMA)
+            conn.execute(
+                "INSERT INTO garden (user_id, specimen_id, label_name, saved_at) "
+                "SELECT ?, specimen_id, label_name, saved_at FROM garden_old",
+                (DEFAULT_USER,),
+            )
+            conn.execute("DROP TABLE garden_old")
+        elif leftover:
+            # Recovery: a prior aborted (non-atomic) migration left the real
+            # rows in `garden_old` beside a possibly-empty new `garden`. Merge
+            # them back (PK-conflict rows are already present) and drop it.
+            conn.execute(
+                "INSERT OR IGNORE INTO garden (user_id, specimen_id, label_name, saved_at) "
+                "SELECT ?, specimen_id, label_name, saved_at FROM garden_old",
+                (DEFAULT_USER,),
+            )
+            conn.execute("DROP TABLE garden_old")
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+    finally:
+        conn.isolation_level = prev_isolation
 
 
 @contextmanager

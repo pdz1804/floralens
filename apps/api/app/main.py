@@ -49,7 +49,13 @@ from agent_core.errors import AgentCoreError
 from apps.api.app import garden_service, memory_service, models_service, specimen_service
 from apps.api.app.env_loader import load_env_files
 from apps.api.app.assistant_service import build_floralens_registries, compile_naturalist
-from apps.api.app.auth import issue_token, jwt_auth_configured, require_api_key, resolve_user
+from apps.api.app.auth import (
+    api_key_configured,
+    issue_token,
+    jwt_auth_configured,
+    require_api_key,
+    resolve_user,
+)
 from apps.api.app.categories_service import get_categories
 from apps.api.app.config import settings
 from apps.api.app.galaxy_service import get_galaxy_points
@@ -180,7 +186,22 @@ def issue_auth_token(req: AuthTokenRequest) -> AuthTokenResponse:
             status_code=404,
             detail="auth not configured: set FLORALENS_JWT_SECRET to enable token issuance",
         )
-    token = issue_token(req.user_id)
+    # Fail closed: minting is gated only by the shared API key, so turning JWT
+    # auth on WITHOUT also setting FLORALENS_API_KEY would leave token issuance
+    # fully open — anyone could mint a token for any user_id and defeat the
+    # very isolation the JWT secret enables. Refuse rather than serve that.
+    if not api_key_configured():
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "refusing to mint tokens: set FLORALENS_API_KEY so token issuance "
+                "is not unauthenticated when per-user auth is enabled"
+            ),
+        )
+    try:
+        token = issue_token(req.user_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return AuthTokenResponse(token=token, token_type="bearer")
 
 

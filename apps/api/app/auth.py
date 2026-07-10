@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import hmac
 import os
+import re
 import time
 
 from fastapi import HTTPException, Request
@@ -33,6 +34,25 @@ from fastapi import HTTPException, Request
 # Owner of all data when per-user auth is off (no FLORALENS_JWT_SECRET) or a
 # request has no other resolvable identity — i.e. today's single-user mode.
 DEFAULT_USER = "public"
+
+# A user id must be a short, unambiguous token: it is the JWT `sub`, a SQLite
+# owner value, AND a component of the per-user memory namespace (see
+# assistant_service.namespaced_for_user, which joins with ':'). Restricting it
+# to this charset (no ':' , no '/', no whitespace) keeps that namespace
+# unambiguous — so distinct ids can never collide onto one bucket — and blocks
+# namespace/path injection into memory backends (e.g. mem0 collection names).
+# The reserved DEFAULT_USER sentinel is disallowed so a minted token can never
+# alias the shared single-user/legacy bucket.
+_USER_ID_PATTERN = re.compile(r"[A-Za-z0-9_-]{1,200}")
+
+
+def valid_user_id(user_id: object) -> bool:
+    """True if `user_id` is a safe, non-sentinel identity token."""
+    return (
+        isinstance(user_id, str)
+        and user_id != DEFAULT_USER
+        and _USER_ID_PATTERN.fullmatch(user_id) is not None
+    )
 
 
 def _configured_api_key() -> str | None:
@@ -88,6 +108,11 @@ def jwt_auth_configured() -> bool:
     return _configured_jwt_secret() is not None
 
 
+def api_key_configured() -> bool:
+    """Whether a shared API key is configured (FLORALENS_API_KEY set)."""
+    return _configured_api_key() is not None
+
+
 def _extract_bearer_token(request: Request) -> str | None:
     auth_header = request.headers.get("Authorization", "")
     if auth_header.lower().startswith("bearer "):
@@ -120,8 +145,12 @@ async def resolve_user(request: Request) -> str:
     except jwt.PyJWTError as exc:
         raise HTTPException(status_code=401, detail="invalid or expired token") from exc
     sub = payload.get("sub")
-    if not sub or not isinstance(sub, str):
-        raise HTTPException(status_code=401, detail="token missing 'sub' claim")
+    if not valid_user_id(sub):
+        # Rejects a missing/blank/non-str sub, the reserved DEFAULT_USER
+        # sentinel, and any id outside the safe charset — so a crafted token
+        # cannot reach the shared default bucket or collide with another
+        # user's memory namespace.
+        raise HTTPException(status_code=401, detail="token 'sub' is missing or not a valid user id")
     return sub
 
 
@@ -141,6 +170,11 @@ def issue_token(user_id: str, expires_in_s: int = 86400) -> str:
     if secret is None:
         raise RuntimeError(
             "cannot issue a token: FLORALENS_JWT_SECRET is not configured"
+        )
+    if not valid_user_id(user_id):
+        raise ValueError(
+            f"invalid user_id: must match [A-Za-z0-9_-]{{1,200}} and not be the "
+            f"reserved {DEFAULT_USER!r} sentinel"
         )
 
     import jwt  # lazy: module import must not require PyJWT when auth is off

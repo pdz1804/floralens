@@ -166,7 +166,12 @@ def test_auth_me_with_valid_token_returns_the_sub_claim(monkeypatch):
 
 def test_auth_token_endpoint_issues_a_usable_token_when_configured(monkeypatch):
     monkeypatch.setenv("FLORALENS_JWT_SECRET", "test-secret")
-    resp = client.post("/api/auth/token", json={"user_id": "alice"})
+    # Minting requires the shared API key too (fail-closed, see below), so set
+    # and present it.
+    monkeypatch.setenv("FLORALENS_API_KEY", "shared-key")
+    resp = client.post(
+        "/api/auth/token", json={"user_id": "alice"}, headers={"X-API-Key": "shared-key"}
+    )
     assert resp.status_code == 200
     body = resp.json()
     assert body["token_type"] == "bearer"
@@ -175,6 +180,63 @@ def test_auth_token_endpoint_issues_a_usable_token_when_configured(monkeypatch):
     me = client.get("/api/auth/me", headers=_auth_header(body["token"]))
     assert me.status_code == 200
     assert me.json() == {"user_id": "alice"}
+
+
+def test_auth_token_endpoint_fails_closed_when_jwt_on_but_no_api_key(monkeypatch):
+    # JWT auth ON without a shared API key would make minting fully open; the
+    # endpoint must refuse (503) rather than issue unauthenticated tokens.
+    monkeypatch.setenv("FLORALENS_JWT_SECRET", "test-secret")
+    monkeypatch.delenv("FLORALENS_API_KEY", raising=False)
+    resp = client.post("/api/auth/token", json={"user_id": "alice"})
+    assert resp.status_code == 503
+
+
+def test_public_sentinel_cannot_be_minted_or_resolved(monkeypatch):
+    monkeypatch.setenv("FLORALENS_JWT_SECRET", "test-secret")
+    # issue_token refuses the reserved sentinel...
+    with pytest.raises(ValueError):
+        issue_token(DEFAULT_USER)
+    # ...and a hand-forged "public" token is rejected at resolve time, so it can
+    # never reach the shared default bucket once auth is on.
+    import jwt
+
+    forged = jwt.encode({"sub": DEFAULT_USER}, "test-secret", algorithm="HS256")
+    request = _request_with_bearer(forged)
+    with pytest.raises(Exception) as exc_info:
+        asyncio.run(resolve_user(request))
+    assert getattr(exc_info.value, "status_code", None) == 401
+
+
+@pytest.mark.parametrize("bad_id", ["alice:default", "../floralens", "a b", "has/slash", ""])
+def test_issue_token_rejects_unsafe_user_ids(monkeypatch, bad_id):
+    monkeypatch.setenv("FLORALENS_JWT_SECRET", "test-secret")
+    with pytest.raises(ValueError):
+        issue_token(bad_id)
+
+
+def test_garden_migration_recovers_orphaned_rows_from_a_prior_aborted_rebuild(monkeypatch, tmp_path):
+    # Simulate the disk state a NON-atomic migration could leave behind: real
+    # rows stranded in `garden_old` beside a new, empty, migrated `garden`.
+    db = tmp_path / "garden.db"
+    monkeypatch.setattr(garden_service, "_DB_PATH", db)
+    conn = sqlite3.connect(db)
+    conn.execute(garden_service._SCHEMA)  # new-schema (empty) garden
+    conn.execute(
+        "CREATE TABLE garden_old (specimen_id TEXT PRIMARY KEY, label_name TEXT, saved_at TEXT)"
+    )
+    conn.execute(
+        "INSERT INTO garden_old VALUES ('sid-legacy', 'Legacy Rose', '2026-01-01T00:00:00+00:00')"
+    )
+    conn.commit()
+    conn.close()
+
+    # A normal service call triggers _ensure_schema, which must merge the
+    # stranded row into the default bucket and drop garden_old — no data lost.
+    items = garden_service.list_specimens(DEFAULT_USER)
+    assert [i.specimen_id for i in items] == ["sid-legacy"]
+    conn = sqlite3.connect(db)
+    assert not garden_service._table_exists(conn, "garden_old")
+    conn.close()
 
 
 def test_issue_token_raises_without_a_configured_secret():
