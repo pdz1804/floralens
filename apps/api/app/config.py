@@ -53,6 +53,19 @@ class Settings:
     # the request thread_id resumes prior state across requests — and, for a
     # file path, across process restarts. Empty string is treated as unset.
     checkpoint_db: str | None = os.environ.get("FLORALENS_CHECKPOINT_DB") or None
+    # Opt-in long-term memory backend for the naturalist assistant (Gap G12).
+    # Default "in_memory" is the process-local, dependency-free provider the
+    # naturalist manifest (agents/naturalist.yaml) already declares, so unset ->
+    # behavior is byte-for-byte identical to before (offline demo + existing
+    # tests unaffected). Set FLORALENS_MEMORY_PROVIDER=mem0 to switch to
+    # agent_core's semantic/persistent mem0 backend instead — both providers are
+    # already registered by build_default_registries, and assistant_service
+    # overrides the manifest's provider with this value at load time so the
+    # compiled agent AND the /api/memory inspector read the same store. mem0 is
+    # lazily imported (see agent_core.memory.mem0_provider): selecting it
+    # requires `pip install 'mem0ai>=0.1'` + OPENAI_API_KEY; the default path
+    # never imports mem0, so a missing package can never break the app.
+    memory_provider: str = os.environ.get("FLORALENS_MEMORY_PROVIDER", "in_memory")
 
 
 settings = Settings()

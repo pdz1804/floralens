@@ -19,8 +19,14 @@ tools:
 # threads, and so /api/garden's "My Garden" memory inspector has a real
 # store to list/clear — apps/api/app/memory_service.py reads this exact
 # provider/scope/namespace, never a second disconnected store. `in_memory`
-# is the default backend (process-local, no external deps); swap to `mem0`
-# here for semantic, persistent memory — no core or app code change needed.
+# is the default backend (process-local, no external deps). To get semantic,
+# persistent recall, switch to agent_core's `mem0` backend WITHOUT editing this
+# file: set the env var FLORALENS_MEMORY_PROVIDER=mem0 (see apps/api/app/config.py
+# + assistant_service._apply_memory_provider_override, which overrides the
+# provider below at load time) and install the opt-in dep (`pip install
+# 'mem0ai>=0.1'`, plus OPENAI_API_KEY). Editing `provider: mem0` here works too
+# — both are equivalent — but the env toggle keeps this manifest, the demo, and
+# the default tests on the dependency-free in_memory path with no change.
 memory:
   provider: in_memory
   scope: user

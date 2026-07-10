@@ -113,6 +113,19 @@ def build_floralens_registries() -> Registries:
     return registries
 
 
+def _apply_memory_provider_override(manifest: AgentManifest) -> None:
+    """Point the naturalist's long-term memory at the configured backend (Gap
+    G12). The manifest declares `in_memory` (the dependency-free default); when
+    `FLORALENS_MEMORY_PROVIDER` selects a different backend (e.g. `mem0`), swap
+    the provider name in place so both the compiled agent and the /api/memory
+    inspector read the exact same store. With the env var unset (or set to the
+    manifest's own provider) this is a no-op, so the default behavior is
+    unchanged. The provider name is validated against the registry downstream by
+    `compile_agent`, so an unknown value fails loudly rather than silently."""
+    if manifest.memory is not None and settings.memory_provider != manifest.memory.provider:
+        manifest.memory.provider = settings.memory_provider
+
+
 def load_naturalist_manifests() -> dict[str, AgentManifest]:
     """Load the naturalist supervisor + its three sub-agent manifests.
 
@@ -120,12 +133,14 @@ def load_naturalist_manifests() -> dict[str, AgentManifest]:
     `identifier` (species ID), `researcher` (cited botanical facts), and
     `care_advisor` (FloraLens gallery facts). Each is exposed to the supervisor
     as an `ask_<id>` tool by `compile_naturalist`."""
-    return {
+    manifests = {
         "naturalist": load_manifest_file(_AGENTS_DIR / "naturalist.yaml"),
         "identifier": load_manifest_file(_AGENTS_DIR / "identifier.yaml"),
         "researcher": load_manifest_file(_AGENTS_DIR / "researcher.yaml"),
         "care_advisor": load_manifest_file(_AGENTS_DIR / "care_advisor.yaml"),
     }
+    _apply_memory_provider_override(manifests["naturalist"])
+    return manifests
 
 
 def compile_naturalist(
