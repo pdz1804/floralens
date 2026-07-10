@@ -24,6 +24,7 @@ from agent_core import (
     compile_agent,
     load_manifest_file,
 )
+from agent_core.checkpoint import CheckpointerArg
 from pydantic import BaseModel, Field
 
 from apps.api.app.config import settings
@@ -120,12 +121,25 @@ def load_naturalist_manifests() -> dict[str, AgentManifest]:
     }
 
 
-def compile_naturalist(registries: Registries) -> CompiledAgent:
+def compile_naturalist(
+    registries: Registries, checkpointer: CheckpointerArg = None
+) -> CompiledAgent:
     """Resolve + compile the naturalist manifest (with care_advisor as a
-    sub-agent tool, `ask_care_advisor`) against the given registries."""
+    sub-agent tool, `ask_care_advisor`) against the given registries.
+
+    `checkpointer` opts the compiled naturalist into agent_core's durable
+    short-term thread memory (PRD Phase 7 / E3): pass a saver built via
+    `agent_core.sqlite_checkpointer(...)` and LangGraph persists state per
+    request `thread_id`, so same-thread runs resume prior state (multi-turn
+    conversations) while different threads stay isolated. Left `None` (the
+    default), behavior is exactly as before — single-shot runs, no cross-turn
+    state — so the local demo and existing callers are unaffected. Only the
+    top-level supervisor is checkpointed; the care_advisor sub-agent stays
+    single-shot (see `compile_agent`'s sub-agent handling)."""
     manifests = load_naturalist_manifests()
     return compile_agent(
         manifests["naturalist"],
         registries,
         agents={"care_advisor": manifests["care_advisor"]},
+        checkpointer=checkpointer,
     )

@@ -44,6 +44,15 @@ class Settings:
     # value is fed into). Raw string here — resolution happens lazily where
     # torch is actually imported, so importing this module never pulls in torch.
     device: str = os.environ.get("FLORALENS_DEVICE", "auto")
+    # Opt-in durable short-term thread memory for the naturalist assistant
+    # (PRD Phase 7 / E3). Unset by default -> the assistant stays single-shot
+    # (each request starts from fresh state, no cross-turn resume), exactly as
+    # before. When set to a filesystem path (or ":memory:"), compile_naturalist
+    # wires agent_core's durable SQLite checkpointer
+    # (agent_core.sqlite_checkpointer), so a multi-turn conversation keyed by
+    # the request thread_id resumes prior state across requests — and, for a
+    # file path, across process restarts. Empty string is treated as unset.
+    checkpoint_db: str | None = os.environ.get("FLORALENS_CHECKPOINT_DB") or None
 
 
 settings = Settings()

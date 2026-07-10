@@ -1,6 +1,6 @@
 """FloraLens API — FastAPI app.
 
-Endpoints (Phase 0-1 scope):
+Core endpoints (health + image search):
   GET  /health            - liveness + active model_version
   GET  /api/health        - alias, same payload (matches PRD API surface prefix)
   POST /api/search        - image (multipart file OR JSON base64) -> top-K matches
@@ -31,6 +31,7 @@ from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
+from agent_core import sqlite_checkpointer
 from agent_core.errors import AgentCoreError
 
 from apps.api.app import garden_service, memory_service
@@ -66,6 +67,17 @@ app = FastAPI(title="FloraLens API", version="0.1.0")
 # `assistant_registries.models.register(..., overwrite=True)` to run the
 # naturalist agent offline (no API key / network spend).
 assistant_registries = build_floralens_registries()
+
+# Opt-in durable short-term thread memory (PRD Phase 7 / E3): when
+# FLORALENS_CHECKPOINT_DB is set, every /api/assistant run is compiled with
+# agent_core's durable SQLite checkpointer, so runs sharing a thread_id resume
+# prior conversation state across requests (and, for a file path, across
+# restarts). Built once here as a lightweight spec (the real async saver is
+# materialized lazily, per run, inside the running event loop). Unset (the
+# default) -> None -> single-shot runs, unchanged from before.
+_assistant_checkpointer = (
+    sqlite_checkpointer(settings.checkpoint_db) if settings.checkpoint_db else None
+)
 
 _ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp", "image/bmp"}
 
@@ -296,7 +308,7 @@ async def assistant(req: AssistantRequest) -> StreamingResponse:
         yield f"data: {json.dumps({'type': 'run_started'})}\n\n"
         try:
             try:
-                agent = compile_naturalist(assistant_registries)
+                agent = compile_naturalist(assistant_registries, _assistant_checkpointer)
             except AgentCoreError as exc:
                 yield _assistant_error_event(str(exc))
                 return
