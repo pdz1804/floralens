@@ -12,15 +12,15 @@ Stack: FastAPI + PyTorch + LangGraph + mem0 (Python) / Next.js + Three.js (TS).
 |---|---|---|---|---|
 | 0 | Foundation & scaffolding | — | Project setup | ☑ |
 | 1 | Dataset, splits & baseline retrieval | 0 | **Data hygiene + eval protocol** | ☑ |
-| 2 | Search UI + scored results | 1 | Frontend, UX | ☐ |
+| 2 | Search UI + scored results | 1 | Frontend, UX | ☑ |
 | 3 | Fine-tuning + validation (model selection) | 1 | **Training + val discipline** | ☑ |
 | 3b | Test eval, calibration & promotion gate | 3 | **Unbiased testing + calibration** | ☑ |
-| 4 | 3D specimen viewer + embedding galaxy | 1,2 | Three.js | ☐ |
-| 5 | Unified Agent Core integration | 0 | Agent harness | ☐ |
-| 6 | Naturalist multi-agent assistant | 5 | LangGraph, prompts, web search | ☐ |
-| 7 | My Garden + mem0 memory | 5,6 | Memory | ☐ |
-| 8 | Testing, CI gates & ML regression | 1,3b,6 | **Test strategy (PRD §15)** | ◐ |
-| 9 | Auth, hardening, observability | all | Platform | ☐ |
+| 4 | 3D specimen viewer + embedding galaxy | 1,2 | Three.js | ☑ |
+| 5 | Unified Agent Core integration | 0 | Agent harness | ☑ |
+| 6 | Naturalist multi-agent assistant | 5 | LangGraph, prompts, web search | ☑ |
+| 7 | My Garden + mem0 memory | 5,6 | Memory | ☑ |
+| 8 | Testing, CI gates & ML regression | 1,3b,6 | **Test strategy (PRD §15)** | ☑ |
+| 9 | Auth, hardening, observability | all | Platform | ◐ (shared-key shipped; per-user/OAuth deferred) |
 
 ---
 
@@ -107,6 +107,7 @@ Stack: FastAPI + PyTorch + LangGraph + mem0 (Python) / Next.js + Three.js (TS).
 - Rate limiting; structured logging; tool-call tracing; model-version tag on searches.
 - Accessibility pass; README + run docs.
 **Exit:** all NFRs (§12) met; clean secret scan.
+> **Shipped scope (◐):** opt-in **shared-key** auth (`FLORALENS_API_KEY` via `X-API-Key`/`Bearer`, `apps/api/app/auth.py`) on write/read-private endpoints; per-IP rate limiting (`rate_limit.py`) on `/api/search` + `/api/assistant`; secret redaction (`redaction.py`). **Deferred:** per-user email/password + OAuth and per-user isolation — current build is a single shared key, not multi-user.
 
 ---
 
@@ -121,5 +122,25 @@ Stack: FastAPI + PyTorch + LangGraph + mem0 (Python) / Next.js + Three.js (TS).
 Rationale: nail the evaluation protocol before touching training, so every later model claim is trustworthy.
 
 ## Decisions (resolved — see PRD §18)
-pgvector · pseudo-3D specimen cards · **ArcFace first** then triplet comparison · sandbox deferred to AgentForge · Oxford-102 only for v1.
+pgvector *(planned; v1 ships in-memory cosine — see Progress Log)* · pseudo-3D specimen cards · **ArcFace first** then triplet comparison · sandbox deferred to AgentForge · Oxford-102 only for v1.
 Non-blocking build-time picks: backbone (OpenCLIP ViT-B/32 vs DINOv2) decided by Phase 1 baseline; GPU (local vs cloud).
+
+## Progress Log
+
+### 2026-07-11 — Status reconciliation against shipped code
+Phase table was stale (Phases 2, 4–9 still ☐/◐); verified each against the repo and updated to ☑:
+- **Phase 2** — Search UI + scored results: `apps/web` + `search_service.py`.
+- **Phase 4** — 3D embedding galaxy + species catalogue: `galaxy_service.py`, `categories_service.py`, `/api/galaxy`, `/api/categories`.
+- **Phase 5** — Unified Agent Core: `assistant_service.py` imports `agent_core` (editable, from sibling agentforge repo).
+- **Phase 6** — Naturalist multi-agent team: `naturalist` supervisor + `identifier`/`researcher`/`care_advisor` manifests (`agents/*.yaml`), output guardrails, live SSE token streaming on `/api/assistant`.
+- **Phase 7** — My Garden + memory: `garden_service.py` + `memory_service.py`; `in_memory` default, opt-in **mem0** (`FLORALENS_MEMORY_PROVIDER=mem0`), opt-in **SQLite checkpointer** (`FLORALENS_CHECKPOINT_DB`).
+- **Phase 8** — CI + ML gates: `.github/workflows/ci.yml` runs the build-blocking leakage assertion, ML metric-regression gate (Recall@5 / mAP@10), and Playwright e2e (runtime model-dependent e2e is explicitly SKIPPED, not silently passed, on CI runners lacking artifacts/keys).
+- **Phase 9** — shipped as ◐: shared-key auth + rate-limit + secret redaction (see Phase 9 note).
+
+**Honest partials / deferred (not overclaimed):**
+- **Auth:** shared-key only; per-user email/password + OAuth and per-user isolation not done.
+- **Vector store:** pgvector deferred; v1 uses in-memory cosine (numpy) over the gallery partition.
+- **Backbone:** OpenCLIP/DINOv2 active; DINOv3 gated behind an HF token.
+- **Scale:** Oxford-102 only; iNaturalist-scale is post-v1.
+- **Specimen viewer:** GLTF → pseudo-3D cards by decision (Open Q#2).
+- **PRD §11 API surface:** `/api/models`, `/api/specimens/{id}`, `/api/embed` are being added and are not yet in `main.py`.
