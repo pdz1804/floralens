@@ -116,9 +116,10 @@ def build_split_manifest(
 
     rng = random.Random(seed)
 
-    # Exact-duplicate quarantine first (content hash), then near-duplicate
-    # clustering (perceptual hash) — both feed the same "duplicate group"
-    # concept so a group of exact+near dupes is assigned to one split.
+    # Near-duplicate clustering first (perceptual hash), then the exact
+    # content-hash union below. The order does not matter: the final union-find
+    # grouping is commutative, so exact and near dupes always collapse into the
+    # same "duplicate group", which is then assigned to a single split.
     phashes = {r.id: _perceptual_hash(r.image_path) for r in records}
     group_of = _cluster_near_duplicates(records, phashes)
 

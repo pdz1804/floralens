@@ -25,6 +25,12 @@ class ArcFaceLoss(nn.Module):
 
     Holds its own learnable per-class weight matrix (the "class centers");
     training jointly shapes the projection head and these centers.
+
+    Precondition: the `embeddings` passed to `forward` MUST already be
+    L2-normalized (the `ProjectionHead` guarantees this in-pipeline). The loss
+    normalizes only the class weights, not its inputs, so the cos(theta)
+    geometry below is valid only for unit-norm embeddings; a non-normalized
+    input silently breaks the angular margin rather than raising.
     """
 
     def __init__(
@@ -78,7 +84,11 @@ class ArcFaceLoss(nn.Module):
             raise ValueError("labels batch size must match embeddings batch size")
 
         normalized_weight = nn.functional.normalize(self.weight, p=2, dim=-1)
-        cosine = nn.functional.linear(embeddings, normalized_weight)  # (batch, num_classes), already in [-1,1]
+        # (batch, num_classes) of cos(theta) between each embedding and each
+        # class center. This is a plain cosine (in [-1, 1]) ONLY because
+        # `embeddings` is unit-norm per the class-docstring precondition; the
+        # weights are L2-normalized just above, the inputs are assumed to be.
+        cosine = nn.functional.linear(embeddings, normalized_weight)
         cosine = cosine.clamp(-1.0 + 1e-7, 1.0 - 1e-7)
 
         sine = torch.sqrt(1.0 - cosine.pow(2))

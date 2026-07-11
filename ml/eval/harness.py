@@ -78,7 +78,8 @@ def run_retrieval_eval(
 
 
 def _safe_silhouette(items: list[EmbeddedSpecimen]) -> float | None:
-    """Mean silhouette score over classes; None if degenerate (<2 classes)."""
+    """Mean silhouette coefficient over all query samples (cosine metric); None
+    if degenerate (<2 classes or <3 samples)."""
     labels = [item.label for item in items]
     if len(set(labels)) < 2 or len(items) < 3:
         return None

@@ -29,9 +29,13 @@ def precision_at_k(relevance: list[bool], k: int) -> float:
 def average_precision_at_k(relevance: list[bool], k: int) -> float:
     """Average precision over the top-k, rewarding correct ranking order.
 
-    AP@K = (1 / min(k, num_relevant_in_top_k_or_total)) * sum_i [rel_i * precision_at_i]
-    Uses the standard convention: normalize by the number of relevant items
-    actually present in the top-k window (0 if none).
+    AP@K = (1 / num_relevant_in_top_k) * sum_i [rel_i * precision_at_i]
+    Normalizes by the number of relevant items actually present in the top-k
+    window (0 if none). Note this is NOT the textbook `min(K, total_relevant)`
+    denominator: it cannot penalize relevant items ranked beyond K, because the
+    harness already passes a top-k-truncated relevance list. Deliberate
+    simplification, but be aware it is more lenient (a single hit at rank 1 with
+    K=5 scores AP@5 = 1.0, not 0.2, when many relevant items exist).
     """
     if k <= 0:
         raise ValueError("k must be positive")

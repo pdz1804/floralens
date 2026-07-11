@@ -44,7 +44,7 @@ class TrainConfig:
     margin: angular margin (ArcFace, radians) or distance margin (triplet).
     scale: ArcFace logit scale factor; unused when loss="triplet".
     batch_size: training batch size.
-    max_epochs: hard cap on training epochs.
+    max_epochs: hard cap on training epochs (must be >= 1).
     early_stop_patience: epochs without a val Recall@5 improvement (beyond
         `early_stop_min_delta`) tolerated before stopping.
     early_stop_min_delta: minimum val Recall@5 gain counted as an improvement.
@@ -153,6 +153,10 @@ def train_head(
     """
     _set_seed(config.seed)
     device = device or resolve_device()
+    if config.max_epochs < 1:
+        # Fail loud: with zero epochs the training loop below never runs, so
+        # there is no checkpoint to return and the val metrics stay unbound.
+        raise ValueError(f"max_epochs must be >= 1, got {config.max_epochs}")
 
     head = ProjectionHead(
         input_dim=input_dim, output_dim=config.output_dim, hidden_dim=config.head_hidden_dim
@@ -214,12 +218,12 @@ def train_head(
             if epochs_without_improvement >= config.early_stop_patience:
                 break
 
-    if best_state is None:
-        # Degenerate case (e.g. max_epochs=0 in a test): fall back to current weights.
-        best_state = {k: v.detach().cpu().clone() for k, v in head.state_dict().items()}
-        best_val_metrics = val_metrics
-        best_epoch = epoch
-        best_val_recall5 = val_recall5
+    if best_state is None:  # pragma: no cover - defensive; unreachable given max_epochs >= 1
+        # The first epoch's val Recall@5 (always >= 0) beats the -1.0 sentinel,
+        # so a checkpoint is captured on epoch 1 at the latest. Reaching here
+        # would mean the loop never executed, which the max_epochs >= 1 guard
+        # above already prevents; raise rather than return an empty result.
+        raise RuntimeError("training completed without capturing a checkpoint")
 
     return TrainResult(
         config=config,

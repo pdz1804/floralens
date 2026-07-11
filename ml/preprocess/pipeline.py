@@ -69,9 +69,12 @@ _PIPELINE_STEPS = (
 def preprocess_fingerprint() -> str:
     """Short stable hash of the preprocessing params + step order.
 
-    Changing any tunable that alters output pixels (WB blend, CLAHE clip, gain
-    clip, target size, step order) changes this fingerprint, so a re-embed is
-    required and a mismatch against a cached one is detectable.
+    Changing any of the color/size tunables in the payload below (WB blend,
+    CLAHE clip, gain clip, target size, step order) changes this fingerprint, so
+    a re-embed is required and a mismatch against a cached one is detectable.
+    The `_EXTREME_ASPECT` guard threshold is deliberately NOT hashed: it only
+    affects pathological aspect ratios (rare in Flowers-102), so it sits outside
+    the reproducibility contract.
     """
     import hashlib
 

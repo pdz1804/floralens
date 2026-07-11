@@ -2,7 +2,8 @@
 
 Output layout under `out_dir`:
   embeddings.npz   -> arrays keyed by specimen id ("flowers102-00123" -> vector)
-  metadata.json    -> {id: {label, label_name, split, image_path}, model_version, backbone}
+  metadata.json    -> {model_version, backbone, preprocess_fingerprint,
+                        specimens: {id: {label, label_name, split, image_path}}}
 """
 from __future__ import annotations
 
