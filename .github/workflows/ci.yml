@@ -67,7 +67,7 @@ jobs:
           # agentforge repo instead + the extra checkpointer/observability deps
           # FloraLens pins. Without it every test that imports the app fails to
           # collect (ModuleNotFoundError: agent_core).
-          pip install "agent-core[openai] @ git+https://github.com/pdz1804/agentforge.git@main#subdirectory=packages/agent-core" \
+          pip install "pdz-agent-core[openai] @ git+https://github.com/pdz1804/agentforge.git@main#subdirectory=packages/agent-core" \
             aiosqlite==0.22.1 langgraph-checkpoint-sqlite==3.1.0 asyncpg==0.31.0
           pip install pytest-cov
 
@@ -224,7 +224,7 @@ jobs:
           # agentforge repo instead + the extra checkpointer/observability deps
           # FloraLens pins. Without it every test that imports the app fails to
           # collect (ModuleNotFoundError: agent_core).
-          pip install "agent-core[openai] @ git+https://github.com/pdz1804/agentforge.git@main#subdirectory=packages/agent-core" \
+          pip install "pdz-agent-core[openai] @ git+https://github.com/pdz1804/agentforge.git@main#subdirectory=packages/agent-core" \
             aiosqlite==0.22.1 langgraph-checkpoint-sqlite==3.1.0 asyncpg==0.31.0
           if [ -d ../agentforge/packages/agent-core ]; then
             pip install -e "../agentforge/packages/agent-core[openai]"
