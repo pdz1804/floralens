@@ -25,6 +25,15 @@ logger = logging.getLogger(__name__)
 
 
 class SearchResultItem:
+    """One ranked `/api/search` result: the matched gallery specimen, its raw
+    similarity score, and optional calibrated-confidence fields.
+
+    `confidence`/`band` are populated only when a promoted candidate with a
+    fitted calibrator is active (PRD §14.6); on the "baseline" model version
+    they stay None so the original specimen_id/label/label_name/score
+    contract is unchanged.
+    """
+
     __slots__ = ("specimen_id", "label", "label_name", "score", "confidence", "band", "description")
 
     def __init__(
@@ -37,6 +46,8 @@ class SearchResultItem:
         band: str | None = None,
         description: str | None = None,
     ) -> None:
+        """Store one search result's fields as-is (no validation: callers are
+        internal and already produce well-formed values)."""
         self.specimen_id = specimen_id
         self.label = label
         self.label_name = label_name

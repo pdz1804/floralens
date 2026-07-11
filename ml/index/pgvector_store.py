@@ -57,6 +57,14 @@ class PgVectorStore:
         dim: int = 1024,
         table: str = "fl_gallery",
     ) -> None:
+        """Open a connection, ensure the `vector` extension and the gallery
+        table exist, and bind to `model_version` (rows for other model
+        versions in the same table are untouched by this instance).
+
+        `table` is validated as a safe SQL identifier before being
+        interpolated into DDL/DML, since psycopg placeholders cannot
+        parametrize identifiers, only values.
+        """
         _validate_identifier(table, "table")
         import psycopg  # local import: keep this module importable without psycopg installed
         from pgvector.psycopg import register_vector
@@ -98,6 +106,9 @@ class PgVectorStore:
         return vector / norm
 
     def add(self, id_: str, vector: np.ndarray, metadata: dict[str, Any] | None = None) -> None:
+        """Insert or update one (id, model_version) row with an L2-normalized
+        embedding, upserting on the `(id, model_version)` primary key so
+        re-adding the same id refreshes its vector/metadata in place."""
         import json
 
         vector = self._normalize(vector)
@@ -134,6 +145,16 @@ class PgVectorStore:
         top_k: int = 12,
         exclude_ids: set[str] | None = None,
     ) -> list[SearchResult]:
+        """Return the top_k nearest neighbors to `vector` by cosine similarity,
+        restricted to this store's `model_version` and excluding `exclude_ids`.
+
+        Cosine similarity is computed in SQL as `1 - (embedding <=> query)`
+        (pgvector's `<=>` operator is cosine *distance*); results are ordered
+        by that distance ascending with `id` as a tie-breaker, matching the
+        in-memory `VectorStore`'s stable sort order exactly so both backends
+        return identical top_k on ties. Automatically reconnects once and
+        retries on a dropped connection (`OperationalError`) before giving up.
+        """
         if top_k <= 0:
             return []
         try:
@@ -191,4 +212,5 @@ class PgVectorStore:
         return int(row[0]) if row else 0
 
     def close(self) -> None:
+        """Close the underlying database connection."""
         self._conn.close()

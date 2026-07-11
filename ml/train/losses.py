@@ -35,6 +35,11 @@ class ArcFaceLoss(nn.Module):
         scale: float = 30.0,
         easy_margin: bool = False,
     ) -> None:
+        """Initialize the per-class weight matrix and precompute the margin's
+        trig constants (cos/sin of `margin`, the numerical-stability
+        threshold, and `mm = sin(margin) * margin`) so `forward` only does
+        cheap elementwise math per batch.
+        """
         super().__init__()
         if embedding_dim <= 0 or num_classes <= 0:
             raise ValueError("embedding_dim and num_classes must be positive")
@@ -53,6 +58,18 @@ class ArcFaceLoss(nn.Module):
         self.mm = self.sin_m * margin
 
     def forward(self, embeddings: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+        """Compute the additive-angular-margin cross-entropy for a batch.
+
+        Cosine similarity to each (L2-normalized) class center gives the
+        logits; for the ground-truth class only, the angle is widened by
+        `margin` before taking the cosine again (`cos(theta + m)`), then all
+        logits are scaled by `scale` and passed through standard
+        cross-entropy. Widening only the true class's angle before scoring
+        forces the model to push embeddings closer to their own class center
+        and farther from the margin boundary than plain softmax would,
+        yielding tighter, better-separated clusters on the embedding
+        hypersphere.
+        """
         if embeddings.dim() != 2 or embeddings.shape[-1] != self.weight.shape[1]:
             raise ValueError(
                 f"expected embeddings shape (batch, {self.weight.shape[1]}), got {tuple(embeddings.shape)}"
@@ -82,12 +99,23 @@ class TripletLoss(nn.Module):
     """Batch-hard triplet margin loss over cosine distance (1 - cosine_sim)."""
 
     def __init__(self, margin: float = 0.3) -> None:
+        """Store the margin used to separate hardest-positive from hardest-negative distance."""
         super().__init__()
         if margin < 0:
             raise ValueError("margin must be >= 0")
         self.margin = margin
 
     def forward(self, embeddings: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+        """Compute the batch-hard triplet loss for a batch of embeddings.
+
+        For each anchor, mines the hardest positive (same class, largest
+        cosine distance) and hardest negative (different class, smallest
+        cosine distance) present in the batch, then penalizes via
+        `relu(hardest_positive_dist - hardest_negative_dist + margin)`. This
+        directly optimizes the failure mode retrieval cares about: an anchor
+        whose closest same-class neighbor is farther than its closest
+        different-class neighbor, within a `margin` safety gap.
+        """
         if embeddings.dim() != 2:
             raise ValueError(f"expected embeddings shape (batch, dim), got {tuple(embeddings.shape)}")
         if labels.shape[0] != embeddings.shape[0]:

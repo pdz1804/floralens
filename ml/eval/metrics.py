@@ -57,6 +57,7 @@ def reciprocal_rank(relevance: list[bool]) -> float:
 
 
 def mean_over_queries(per_query_values: list[float]) -> float:
+    """Arithmetic mean of a per-query metric list; 0.0 for an empty list."""
     if not per_query_values:
         return 0.0
     return sum(per_query_values) / len(per_query_values)

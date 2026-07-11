@@ -29,15 +29,27 @@ BAND_MEDIUM_THRESHOLD = 0.40
 
 
 class Calibrator(Protocol):
-    def predict(self, scores: np.ndarray) -> np.ndarray: ...
+    """Structural contract for anything that maps raw scores to calibrated
+    probabilities: one `predict(scores) -> probabilities` method."""
+
+    def predict(self, scores: np.ndarray) -> np.ndarray:
+        """Map an array of raw cosine similarities to calibrated P(same species) in [0, 1]."""
+        ...
 
 
 @dataclass(frozen=True)
 class FittedCalibrator:
+    """A `Calibrator` wrapping a fitted scikit-learn model (isotonic regressor
+    or logistic regression), tagged with which `method` produced it."""
+
     method: CalibrationMethod
     _model: Any
 
     def predict(self, scores: np.ndarray) -> np.ndarray:
+        """Map raw cosine similarities to calibrated probabilities via the
+        fitted model, clipped to [0, 1] (isotonic regression can otherwise
+        emit values fractionally outside that range at the input extremes).
+        """
         scores = np.asarray(scores, dtype=np.float64).reshape(-1, 1)
         if self.method == "isotonic":
             return np.clip(self._model.predict(scores.ravel()), 0.0, 1.0)

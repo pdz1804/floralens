@@ -21,6 +21,12 @@ logger = logging.getLogger(__name__)
 
 
 def main() -> None:
+    """Embed every gallery/val/test record from the split manifest and save the embeddings cache.
+
+    Loads the split manifest, selects the full gallery+val+test partitions
+    (no per-class cap), embeds them with the active backbone, and writes the
+    resulting vectors and metadata to the embeddings cache.
+    """
     manifest = load_manifest()
     subset = select_full_eval_set(manifest)
     logger.info(

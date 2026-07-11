@@ -15,6 +15,9 @@ import numpy as np
 
 @dataclass
 class SearchResult:
+    """One ranked nearest-neighbor hit: gallery specimen id, its cosine
+    similarity score to the query, and its stored metadata (label etc)."""
+
     id: str
     score: float
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -32,20 +35,27 @@ class VectorIndex(Protocol):
 
     model_version: str
 
-    def add(self, id_: str, vector: np.ndarray, metadata: dict[str, Any] | None = None) -> None: ...
+    def add(self, id_: str, vector: np.ndarray, metadata: dict[str, Any] | None = None) -> None:
+        """Index one (id, vector, metadata) entry into the gallery."""
+        ...
 
     def query(
         self,
         vector: np.ndarray,
         top_k: int = 12,
         exclude_ids: set[str] | None = None,
-    ) -> list[SearchResult]: ...
+    ) -> list[SearchResult]:
+        """Return the top_k nearest neighbors to `vector` by cosine similarity,
+        excluding any id in `exclude_ids`."""
+        ...
 
 
 class VectorStore:
     """A minimal in-memory vector index with cosine ranking."""
 
     def __init__(self, model_version: str) -> None:
+        """Create an empty store tagged with `model_version` (carried through
+        to search results so callers know which embedding space they came from)."""
         self.model_version = model_version
         self._ids: list[str] = []
         self._vectors: list[np.ndarray] = []
@@ -53,6 +63,12 @@ class VectorStore:
         self._matrix: np.ndarray | None = None  # cached stacked matrix
 
     def add(self, id_: str, vector: np.ndarray, metadata: dict[str, Any] | None = None) -> None:
+        """Index one (id, vector, metadata) entry.
+
+        The vector is L2-normalized before storage (defensive, in case it
+        arrives not already unit-norm) so `query`'s dot product is a true
+        cosine similarity. Raises on a duplicate id or a zero vector.
+        """
         if id_ in self._metadata:
             raise ValueError(f"duplicate id in vector store: {id_}")
         vector = np.asarray(vector, dtype=np.float32)
@@ -67,6 +83,7 @@ class VectorStore:
         self._matrix = None  # invalidate cache
 
     def __len__(self) -> int:
+        """Number of vectors currently indexed."""
         return len(self._ids)
 
     def _stacked(self) -> np.ndarray:

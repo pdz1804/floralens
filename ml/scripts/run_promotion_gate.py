@@ -140,6 +140,15 @@ def _write_model_card(
 
 
 def main() -> None:
+    """Evaluate the promotion gate against the baseline and active model, and save the decision + model card.
+
+    Reads the already-produced baseline/candidate/calibration eval reports
+    (does not re-run any evaluation itself), compares the candidate's test
+    metrics against the zero-shot baseline and, if present, the currently
+    active model, combines both gate results into a single PROMOTE/REJECT
+    decision, writes ml/eval/reports/promotion_decision.json plus the model
+    card (JSON + Markdown), and logs the decision to MLflow.
+    """
     for path in (BASELINE_REPORT_PATH, CANDIDATE_REPORT_PATH, CALIBRATION_REPORT_PATH):
         if not path.exists():
             raise FileNotFoundError(

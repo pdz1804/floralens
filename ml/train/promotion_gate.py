@@ -31,6 +31,11 @@ DEFAULT_ECE_MAX = 0.05
 
 @dataclass(frozen=True)
 class PromotionGateResult:
+    """Outcome of `evaluate_promotion_gate`: the PROMOTE/REJECT decision plus
+    every metric and threshold that fed it, so the decision is fully
+    auditable from the result alone.
+    """
+
     decision: Decision
     reasons: list[str]
     candidate_val_recall_at_5: float
@@ -44,6 +49,8 @@ class PromotionGateResult:
     ece_max: float
 
     def to_dict(self) -> dict:
+        """Render as a JSON-serializable dict (thresholds nested together) for
+        writing the gate decision to a report file."""
         return {
             "decision": self.decision,
             "reasons": self.reasons,
@@ -70,6 +77,13 @@ def evaluate_promotion_gate(
     val_test_gap_max: float = DEFAULT_VAL_TEST_GAP_MAX,
     ece_max: float = DEFAULT_ECE_MAX,
 ) -> PromotionGateResult:
+    """Decide PROMOTE vs REJECT for a candidate against the three gate criteria
+    (see module docstring): bounded Recall@5 regression, val/test gap, ECE.
+
+    All three criteria must pass to PROMOTE; any single failure REJECTs, and
+    every triggered reason is collected (not just the first) so a rejected
+    candidate's report explains all of its shortfalls at once.
+    """
     val_test_gap = abs(candidate_val_recall_at_5 - candidate_test_recall_at_5)
     recall5_delta = candidate_test_recall_at_5 - baseline_test_recall_at_5
 

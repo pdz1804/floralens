@@ -22,6 +22,9 @@ class ProjectionHead(nn.Module):
     """
 
     def __init__(self, input_dim: int, output_dim: int, hidden_dim: int = 0) -> None:
+        """Build the projection network: a single `Linear` when `hidden_dim=0`,
+        else `Linear -> ReLU -> Linear` for extra capacity.
+        """
         super().__init__()
         if input_dim <= 0 or output_dim <= 0:
             raise ValueError("input_dim and output_dim must be positive")
@@ -42,6 +45,13 @@ class ProjectionHead(nn.Module):
             )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Project a batch of backbone embeddings and L2-normalize the output.
+
+        `x` has shape (batch, input_dim); the return has shape
+        (batch, output_dim) with unit norm along the last dim, so downstream
+        cosine similarity (used by both the losses and the vector store)
+        reduces to a plain dot product.
+        """
         if x.dim() != 2 or x.shape[-1] != self.input_dim:
             raise ValueError(f"expected input shape (batch, {self.input_dim}), got {tuple(x.shape)}")
         out = self.net(x)

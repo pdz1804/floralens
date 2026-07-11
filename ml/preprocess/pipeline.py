@@ -88,10 +88,15 @@ def preprocess_fingerprint() -> str:
 
 @dataclass(frozen=True)
 class PreprocessStep:
+    """One applied transform in the preprocessing pipeline: its short `name`
+    (matches an entry in `_PIPELINE_STEPS`) and a human-readable `description`
+    of what it did, used to explain the pipeline to end users."""
+
     name: str
     description: str
 
     def to_dict(self) -> dict[str, str]:
+        """Render as a plain JSON-serializable `{name, description}` dict."""
         return asdict(self)
 
 

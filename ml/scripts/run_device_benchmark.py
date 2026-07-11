@@ -155,6 +155,14 @@ def _benchmark_train_epoch(device_pref: str) -> dict[str, Any] | None:
 
 
 def main() -> None:
+    """Time backbone embedding and one training epoch on CPU (and CUDA if available), and save the report.
+
+    Benchmarks embedding throughput over a fixed batch of real, preprocessed
+    gallery images and, if the required embedding caches already exist, one
+    short projection-head training epoch, on each available device. Writes
+    ml/eval/reports/device_benchmark.json, logs the same numbers to MLflow,
+    and restores default device resolution before returning.
+    """
     devices = ["cpu", "cuda"] if torch.cuda.is_available() else ["cpu"]
     if not torch.cuda.is_available():
         logger.warning("no CUDA device available; benchmark will only cover cpu")

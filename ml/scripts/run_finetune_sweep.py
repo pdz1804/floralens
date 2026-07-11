@@ -120,6 +120,15 @@ def _run_id(config: TrainConfig, index: int) -> str:
 
 
 def main() -> None:
+    """Run the ArcFace/triplet hyperparameter sweep, select the best config on val, and save the candidate.
+
+    Loads the gallery/val embeddings and the augmented train cache, asserts
+    none of the ids used come from the test split, trains every config in
+    the sweep grid with early stopping and model selection on val Recall@5
+    only, writes a per-run experiment report plus a ranked sweep summary,
+    and persists the winning head weights and metadata as the new candidate
+    ModelVersion under `ml/models/<CANDIDATE_VERSION>/`.
+    """
     manifest = load_manifest()
     dataset_hash = manifest["dataset_hash"]
     num_classes = manifest["num_classes"]

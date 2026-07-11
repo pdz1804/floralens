@@ -99,6 +99,12 @@ def compute_projection(
 def build_and_save(
     embeddings_dir: str = DEFAULT_EMBEDDINGS_DIR, out_path: Path = DEFAULT_OUT_PATH
 ) -> list[dict[str, Any]]:
+    """Load cached gallery embeddings, project them to 3D, and write the result as JSON.
+
+    Reads vectors/metadata from `embeddings_dir`, computes the normalized 3D
+    projection via `compute_projection`, writes it to `out_path` (creating
+    parent directories as needed), and returns the same list of points.
+    """
     vectors, metadata = load_embeddings(embeddings_dir)
     points = compute_projection(vectors, metadata)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -117,6 +123,7 @@ def load_or_build(
 
 
 def main() -> None:
+    """Build the embedding galaxy projection and write it to ml/data/galaxy_projection.json."""
     build_and_save()
 
 

@@ -61,6 +61,10 @@ class _Dinov3Backbone:
     embedding_dim = 1024  # ViT-L hidden size
 
     def __init__(self, device: torch.device) -> None:
+        """Download/load the DINOv3 ViT-L/16 checkpoint and its matching
+        `AutoImageProcessor` from the Hugging Face Hub, move the model to
+        `device`, and set eval mode (raises if the gated repo is unreachable
+        without an approved HF token, per the module docstring)."""
         from transformers import AutoImageProcessor, AutoModel
 
         self.device = device
@@ -71,6 +75,15 @@ class _Dinov3Backbone:
 
     @torch.inference_mode()
     def embed(self, image: Image.Image) -> np.ndarray:
+        """Embed one RGB PIL image into a 1024-d, L2-normalized float32 vector.
+
+        Preprocessing (resize/crop/normalize) is delegated to the model's own
+        `AutoImageProcessor` rather than hardcoded constants. The pooled
+        representation is the processor's `pooler_output` if the model
+        exposes one, else the ViT CLS token from `last_hidden_state`; either
+        way it is L2-normalized so downstream retrieval can score it with a
+        plain dot product (cosine similarity).
+        """
         inputs = self.processor(images=image, return_tensors="pt")
         inputs = {k: v.to(self.device) for k, v in inputs.items()}
         outputs = self.model(**inputs)
@@ -90,6 +103,12 @@ class _Dinov2Backbone:
     embedding_dim = 1024
 
     def __init__(self, device: torch.device) -> None:
+        """Load the DINOv2 ViT-L/14 checkpoint via `torch.hub` (preferring an
+        already-downloaded local hub cache to avoid a network round-trip on
+        every process start; see comment below), move it to `device`, set
+        eval mode, and build the standard DINOv2 eval-time preprocessing
+        transform (resize 256 / center-crop 224 / ImageNet normalize).
+        """
         import os
 
         from torchvision import transforms
@@ -127,6 +146,10 @@ class _Dinov2Backbone:
 
     @torch.inference_mode()
     def embed(self, image: Image.Image) -> np.ndarray:
+        """Embed one RGB PIL image into a 1024-d, L2-normalized float32 vector,
+        using the DINOv2 ViT-L/14 global (CLS-token) feature after the fixed
+        resize/crop/normalize preprocessing built in `__init__`.
+        """
         tensor = self.preprocess(image).unsqueeze(0).to(self.device)
         features = self.model(tensor)  # (1, 1024) CLS-token global feature
         features = features / features.norm(dim=-1, keepdim=True)
@@ -140,6 +163,10 @@ class _OpenClipBackbone:
     embedding_dim = 512
 
     def __init__(self, device: torch.device) -> None:
+        """Load the OpenCLIP ViT-B-32 image encoder (LAION-2B weights) and its
+        matching preprocessing transform, caching weights under
+        `_OPEN_CLIP_CACHE_DIR`, and move the model to `device` in eval mode.
+        """
         import open_clip
 
         self.device = device
@@ -154,6 +181,8 @@ class _OpenClipBackbone:
 
     @torch.inference_mode()
     def embed(self, image: Image.Image) -> np.ndarray:
+        """Embed one RGB PIL image into a 512-d, L2-normalized float32 vector
+        using OpenCLIP's image encoder (`encode_image`)."""
         tensor = self.preprocess(image).unsqueeze(0).to(self.device)
         features = self.model.encode_image(tensor)
         features = features / features.norm(dim=-1, keepdim=True)
@@ -167,6 +196,11 @@ class _ResNet50Backbone:
     embedding_dim = 2048
 
     def __init__(self, device: torch.device) -> None:
+        """Load ImageNet-pretrained ResNet50, strip its final classification
+        layer (keeping only the global-average-pooled penultimate features),
+        move it to `device`, and pull the matching preprocessing transform
+        from the weights metadata (`ResNet50_Weights.DEFAULT.transforms()`).
+        """
         from torchvision.models import ResNet50_Weights, resnet50
         from torchvision.transforms import Compose
 
@@ -181,6 +215,9 @@ class _ResNet50Backbone:
 
     @torch.inference_mode()
     def embed(self, image: Image.Image) -> np.ndarray:
+        """Embed one RGB PIL image into a 2048-d, L2-normalized float32 vector
+        using ResNet50's global-average-pooled penultimate feature map
+        (flattened from (1, 2048, 1, 1) to (1, 2048))."""
         tensor = self.preprocess(image).unsqueeze(0).to(self.device)
         features = self.model(tensor).flatten(1)
         features = features / features.norm(dim=-1, keepdim=True)

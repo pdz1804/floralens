@@ -19,6 +19,12 @@ class EmbeddingDataset(Dataset):
     """(embedding, label) pairs backed by numpy arrays."""
 
     def __init__(self, embeddings: np.ndarray, labels: np.ndarray) -> None:
+        """Validate shapes and store embeddings/labels as torch tensors.
+
+        Embeddings are cast to float32 (matches the head's parameter dtype)
+        and labels to int64 (required by `nn.functional.cross_entropy` /
+        label-comparison ops downstream).
+        """
         if embeddings.ndim != 2:
             raise ValueError(f"embeddings must be 2D (n, dim), got shape {embeddings.shape}")
         if labels.ndim != 1 or labels.shape[0] != embeddings.shape[0]:
@@ -27,7 +33,9 @@ class EmbeddingDataset(Dataset):
         self.labels = torch.from_numpy(np.asarray(labels, dtype=np.int64))
 
     def __len__(self) -> int:
+        """Number of (embedding, label) pairs, as required by `torch.utils.data.Dataset`."""
         return self.embeddings.shape[0]
 
     def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
+        """Return the (embedding, label) pair at `idx` for `DataLoader` batching."""
         return self.embeddings[idx], self.labels[idx]

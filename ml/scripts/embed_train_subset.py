@@ -80,6 +80,18 @@ def _augmented_view(image: Image.Image, view: str) -> Image.Image:
 def embed_augmented_train_subset(
     records: list[dict[str, Any]], views: tuple[str, ...] = AUGMENT_VIEWS
 ) -> tuple[dict[str, np.ndarray], dict[str, Any]]:
+    """Embed each train record under every augmentation view through the frozen backbone.
+
+    Each record is preprocessed once with the same deterministic CV pipeline
+    used for gallery/val/test, then every `view` in `views` (original/hflip/
+    rotate) is applied to that preprocessed image before embedding, so the
+    backbone genuinely sees different pixels per view rather than a no-op.
+    View ids are `"<specimen_id>::<view>"`, all sharing the base record's
+    label. Returns `(vectors, metadata)`, where `metadata` mirrors the
+    embeddings-cache format plus per-view provenance (`base_id`, `view`) and
+    the deterministic settings (backbone, seed, per-class cap) used to build
+    this subset.
+    """
     vectors: dict[str, np.ndarray] = {}
     metadata: dict[str, Any] = {}
     start = time.time()
@@ -121,6 +133,13 @@ def embed_augmented_train_subset(
 
 
 def save_train_embeddings(vectors: dict[str, np.ndarray], metadata: dict[str, Any], out_dir: str = OUT_DIR) -> None:
+    """Write the augmented train embeddings and metadata to `out_dir`.
+
+    Creates `out_dir` if needed, writes `embeddings.npz` (one array per view
+    id) and `metadata.json`, mirroring the layout of the main embeddings
+    cache so downstream loaders (`ml.embeddings.cache.load_embeddings`) work
+    unchanged.
+    """
     out_path = Path(out_dir)
     out_path.mkdir(parents=True, exist_ok=True)
     np.savez(out_path / "embeddings.npz", **vectors)
@@ -128,6 +147,13 @@ def save_train_embeddings(vectors: dict[str, np.ndarray], metadata: dict[str, An
 
 
 def main() -> None:
+    """Select the capped train subset, embed every augmentation view, and save the train embeddings cache.
+
+    Loads the split manifest, selects the deterministic per-class-capped
+    train subset (`select_train_subset`), embeds it with
+    `embed_augmented_train_subset`, and writes the result to
+    ml/data/embeddings_cache/train/.
+    """
     manifest = load_manifest()
     subset = select_train_subset(manifest)
     logger.info(

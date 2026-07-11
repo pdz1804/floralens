@@ -57,6 +57,14 @@ def _build_queries(
 
 
 def main() -> None:
+    """Run the frozen-backbone retrieval eval on val and test, and save the baseline EvalReport.
+
+    Builds the gallery vector store and val/test query sets from the cached
+    embeddings, runs the retrieval protocol on each split, computes the
+    val<->test Recall@5 overfitting-guardrail gap, logs metrics to MLflow,
+    and writes the combined report to
+    ml/eval/reports/baseline_eval_report.json.
+    """
     manifest = load_manifest()
     vectors, metadata = load_embeddings()
     gallery_store = _build_gallery_store(vectors, metadata)

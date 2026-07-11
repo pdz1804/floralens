@@ -58,6 +58,14 @@ def _build_store_and_queries(head, split_data: dict[str, tuple]) -> tuple[Vector
 
 
 def main() -> None:
+    """Fit the score calibrator on val, evaluate ECE on test, and save the calibration report.
+
+    Loads the finetuned candidate head and cached embeddings, projects
+    gallery/val/test through the head, fits an isotonic calibrator on val
+    query-gallery pairs, scores calibrated vs. uncalibrated ECE on val and
+    test, persists the fitted calibrator next to the candidate weights, and
+    writes ml/eval/reports/candidate_calibration_report.json.
+    """
     candidate_dir = Path(MODELS_DIR) / CANDIDATE_VERSION
     head, candidate_metadata = load_candidate_head(candidate_dir)
 

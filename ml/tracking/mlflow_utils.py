@@ -32,6 +32,7 @@ DEFAULT_ARTIFACT_ROOT = "./infra/mlflow/mlartifacts"
 
 
 def tracking_uri() -> str:
+    """Resolve the MLflow tracking URI: `MLFLOW_TRACKING_URI` env var if set, else the local sqlite default."""
     return os.environ.get("MLFLOW_TRACKING_URI", DEFAULT_TRACKING_URI)
 
 
@@ -68,6 +69,8 @@ class _NoopMlflow:
     """Swallows every call; used when MLflow itself cannot be initialized."""
 
     def __getattr__(self, _name: str):
+        """Return a no-op callable for any attribute access, so every MLflow call silently does nothing."""
+
         def _noop(*_args: Any, **_kwargs: Any) -> None:
             return None
 
@@ -91,9 +94,18 @@ class _SafeMlflow:
     _SANITIZE_KEYS_FOR = {"log_metric", "log_metrics", "log_param", "log_params"}
 
     def __init__(self, module: Any) -> None:
+        """Wrap `module` (a real mlflow module or a `_NoopMlflow`) so its calls fail safe."""
         self._module = module
 
     def __getattr__(self, name: str):
+        """Return a fail-safe, key-sanitizing version of `module`'s attribute `name`.
+
+        Non-callable attributes pass through unchanged. Callable attributes
+        are wrapped so metric/param keys are sanitized (see
+        `_sanitize_metric_key`) and any exception raised by the underlying
+        MLflow call is caught, logged as a warning, and swallowed (returns
+        `None`) instead of aborting the run in progress.
+        """
         attr = getattr(self._module, name)
         if not callable(attr):
             return attr

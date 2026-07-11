@@ -16,6 +16,13 @@ from ml.train.head import ProjectionHead
 
 
 def load_candidate_head(candidate_dir: str | Path) -> tuple[ProjectionHead, dict[str, Any]]:
+    """Load a persisted candidate's projection head + its metadata.json.
+
+    Reconstructs the `ProjectionHead` with the exact dims recorded at train
+    time (`input_dim`, `output_dim`, `head_hidden_dim`), loads the saved
+    `head.pt` state dict onto CPU, and puts the head in eval mode (no
+    dropout/BN train-time behavior) so it is immediately safe for inference.
+    """
     candidate_dir = Path(candidate_dir)
     metadata = json.loads((candidate_dir / "metadata.json").read_text(encoding="utf-8"))
     head = ProjectionHead(

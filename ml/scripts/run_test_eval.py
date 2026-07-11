@@ -35,6 +35,14 @@ REPORTS_DIR = "ml/eval/reports"
 
 
 def main() -> None:
+    """Run the one-shot held-out test evaluation of the selected candidate, and save the report.
+
+    Loads the finetuned candidate head, projects the cached gallery/val/test
+    embeddings through it, re-confirms val metrics under the same protocol,
+    performs the single, only-once test-split read of the whole pipeline,
+    computes the val<->test Recall@5 gap, and writes
+    ml/eval/reports/candidate_test_eval_report.json.
+    """
     manifest = load_manifest()
     candidate_dir = Path(MODELS_DIR) / CANDIDATE_VERSION
     head, candidate_metadata = load_candidate_head(candidate_dir)
@@ -65,12 +73,14 @@ def main() -> None:
     projected_test = project_embeddings(head, np.stack(test_raw, axis=0))
 
     def build_store(ids, projected, metas):
+        """Build a VectorStore of the candidate-projected vectors for one split."""
         store = VectorStore(model_version=CANDIDATE_VERSION)
         for id_, vec, meta in zip(ids, projected, metas):
             store.add(id_, vec, {"label": meta["label"], "label_name": meta["label_name"]})
         return store
 
     def build_queries(ids, projected, metas):
+        """Build the EmbeddedSpecimen query list for one split from candidate-projected vectors."""
         return [
             EmbeddedSpecimen(id=id_, label=meta["label"], label_name=meta["label_name"], vector=vec)
             for id_, vec, meta in zip(ids, projected, metas)

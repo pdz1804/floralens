@@ -19,6 +19,13 @@ logger = logging.getLogger(__name__)
 
 
 def main() -> None:
+    """Load the Oxford-102 specimen pool, build the leakage-checked split manifest, and save it.
+
+    Downloads the dataset on first run, builds the stratified train/val/test/
+    gallery split with near-duplicate leakage guarding, exits with an error
+    if any leakage is detected, and otherwise writes the manifest and
+    leakage report to ml/data/manifests/.
+    """
     t0 = time.time()
     logger.info("loading specimen pool (downloads on first run)...")
     records, class_names = load_specimen_pool()

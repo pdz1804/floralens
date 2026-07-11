@@ -27,6 +27,9 @@ K_VALUES = (1, 5, 10)
 
 @dataclass(frozen=True)
 class EmbeddedSpecimen:
+    """One dataset specimen with its precomputed embedding, ready to be
+    indexed into a `VectorStore` or used as an eval query."""
+
     id: str
     label: int
     label_name: str

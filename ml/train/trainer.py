@@ -35,6 +35,23 @@ LossName = Literal["arcface", "triplet"]
 
 @dataclass
 class TrainConfig:
+    """One hyperparameter configuration for `train_head` (PRD §14.5 sweep).
+
+    loss: metric-learning loss, "arcface" or "triplet".
+    lr: Adam learning rate for the head + loss module's parameters.
+    head_hidden_dim: `ProjectionHead` hidden width (0 = single linear layer).
+    output_dim: projected embedding dimensionality.
+    margin: angular margin (ArcFace, radians) or distance margin (triplet).
+    scale: ArcFace logit scale factor; unused when loss="triplet".
+    batch_size: training batch size.
+    max_epochs: hard cap on training epochs.
+    early_stop_patience: epochs without a val Recall@5 improvement (beyond
+        `early_stop_min_delta`) tolerated before stopping.
+    early_stop_min_delta: minimum val Recall@5 gain counted as an improvement.
+    seed: seed for Python/NumPy/torch RNGs and the DataLoader shuffle.
+    weight_decay: Adam L2 weight decay.
+    """
+
     loss: LossName = "arcface"
     lr: float = 1e-3
     head_hidden_dim: int = 0
@@ -51,6 +68,20 @@ class TrainConfig:
 
 @dataclass
 class TrainResult:
+    """Outcome of `train_head`: the best (early-stopped) checkpoint plus its
+    training history.
+
+    config: the `TrainConfig` that produced this result.
+    best_epoch: 1-indexed epoch at which `best_val_recall_at_5` was reached.
+    best_val_recall_at_5: highest val Recall@5 seen during training.
+    final_val_metrics: full val metric dict (all Recall/Precision/mAP@K, MRR)
+        at `best_epoch`, not just the recall@5 used for early stopping.
+    epoch_curve: per-epoch `{epoch, train_loss, val_recall@5}` records, useful
+        for plotting the training curve.
+    head_state_dict: CPU-resident `state_dict()` of the head at `best_epoch`,
+        ready to persist or load elsewhere.
+    """
+
     config: TrainConfig
     best_epoch: int
     best_val_recall_at_5: float

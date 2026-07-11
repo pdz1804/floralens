@@ -63,6 +63,10 @@ def embed_records(
 def save_embeddings(
     vectors: dict[str, np.ndarray], metadata: dict[str, Any], out_dir: str = "ml/data/embeddings_cache"
 ) -> None:
+    """Persist `embed_records`' output to `out_dir` as `embeddings.npz`
+    (one array per specimen id) + `metadata.json` (see module docstring for
+    the layout). Creates `out_dir` if it does not already exist.
+    """
     out_path = Path(out_dir)
     out_path.mkdir(parents=True, exist_ok=True)
     np.savez(out_path / "embeddings.npz", **vectors)
@@ -72,6 +76,7 @@ def save_embeddings(
 def load_embeddings(
     in_dir: str = "ml/data/embeddings_cache",
 ) -> tuple[dict[str, np.ndarray], dict[str, Any]]:
+    """Load a cache written by `save_embeddings` back into (id -> vector, metadata)."""
     in_path = Path(in_dir)
     npz = np.load(in_path / "embeddings.npz")
     vectors = {key: npz[key] for key in npz.files}

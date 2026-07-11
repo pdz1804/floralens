@@ -31,6 +31,14 @@ def select_full_eval_set(manifest: dict[str, Any], splits: tuple[str, ...] = FUL
 def select_embedding_subset(
     manifest: dict[str, Any], per_class_cap: dict[str, int] | None = None
 ) -> list[dict[str, Any]]:
+    """Deterministic, per-class-capped subset of manifest records for a fast dev/smoke run.
+
+    For each (split, class) group, records are sorted by id and only the
+    first `per_class_cap[split]` are kept; splits with a cap <= 0 (default
+    `train`) are skipped entirely. Defaults to `DEFAULT_PER_CLASS_CAP`. The
+    returned list is sorted by id, so the selection and its order are stable
+    across runs given the same manifest.
+    """
     cap = per_class_cap or DEFAULT_PER_CLASS_CAP
     by_split_class: dict[tuple[str, int], list[dict[str, Any]]] = defaultdict(list)
     for rec in manifest["records"]:

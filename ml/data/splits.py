@@ -35,6 +35,15 @@ DEFAULT_SEED = 42
 
 @dataclass(frozen=True)
 class SplitFractions:
+    """Target per-class split proportions, with floors for small classes.
+
+    `train`/`gallery`/`val`/`test` are the desired fraction of each class's
+    duplicate-group-deduplicated records assigned to that split. The `min_*`
+    floors guarantee val/test/gallery each get enough examples even for
+    classes near the dataset's minimum class size, where a raw fraction could
+    otherwise round down to zero.
+    """
+
     train: float = 0.60
     gallery: float = 0.20
     val: float = 0.10
@@ -54,15 +63,18 @@ def _perceptual_hash(image_path: str) -> str:
 
 class _UnionFind:
     def __init__(self, ids: list[str]) -> None:
+        """Initialize each id as its own singleton duplicate group."""
         self._parent = {i: i for i in ids}
 
     def find(self, x: str) -> str:
+        """Return the representative id of `x`'s duplicate group, compressing the path."""
         while self._parent[x] != x:
             self._parent[x] = self._parent[self._parent[x]]
             x = self._parent[x]
         return x
 
     def union(self, a: str, b: str) -> None:
+        """Merge the duplicate groups containing `a` and `b` into one group."""
         ra, rb = self.find(a), self.find(b)
         if ra != rb:
             self._parent[ra] = rb
@@ -240,6 +252,11 @@ def _build_leakage_report(manifest_records: list[dict[str, Any]]) -> dict[str, A
 
 
 def save_manifest(manifest: dict[str, Any], leakage_report: dict[str, Any], out_dir: str = "ml/data/manifests") -> None:
+    """Write the split manifest and leakage report as pretty-printed JSON.
+
+    Creates `out_dir` if it does not exist and writes `split_manifest.json`
+    and `leakage_report.json` there, overwriting any existing files.
+    """
     out_path = Path(out_dir)
     out_path.mkdir(parents=True, exist_ok=True)
     (out_path / "split_manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
@@ -247,4 +264,5 @@ def save_manifest(manifest: dict[str, Any], leakage_report: dict[str, Any], out_
 
 
 def load_manifest(path: str = "ml/data/manifests/split_manifest.json") -> dict[str, Any]:
+    """Load a previously saved split manifest JSON file into a dict."""
     return json.loads(Path(path).read_text(encoding="utf-8"))
