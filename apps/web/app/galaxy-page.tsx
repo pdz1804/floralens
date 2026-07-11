@@ -10,11 +10,26 @@ import styles from "./galaxy.module.css";
 
 type OrbitControlsRef = RefObject<ElementRef<typeof OrbitControls>>;
 
-// Neutral color for points dimmed by the legend's species filter — matches
-// the botanical theme's --muted family closely enough without importing CSS
-// variables into a WebGL color (three.js needs a concrete hex at draw time).
+// Fallbacks for the WebGL scene colors. The single source of truth lives in
+// globals.css (--galaxy-dim / --galaxy-canvas-bg); these hexes are only used
+// before the CSS variable resolves (and if it is ever missing), so the scene
+// is byte-identical to the token values. three.js needs a concrete hex at draw
+// time, so we resolve the variable once on mount and pass it down as a prop.
 const DIM_COLOR = "#5b6b5d";
+const GALAXY_CANVAS_BG = "#070b09";
 const TOP_SPECIES_COUNT = 12;
+
+/** Reads a CSS custom property off :root once on the client, returning the
+ * fallback until (and unless) the variable resolves. Client-only (effect), so
+ * it never runs during SSR/hydration. */
+function useCssVar(name: string, fallback: string): string {
+  const [value, setValue] = useState(fallback);
+  useEffect(() => {
+    const resolved = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    if (resolved) setValue(resolved);
+  }, [name]);
+  return value;
+}
 // World-space point size (points live in a roughly [-1, 1] normalized cube) —
 // tuned so the cloud reads clearly at the default camera distance without
 // individual points collapsing to sub-pixel dots.
@@ -140,12 +155,14 @@ function Galaxy3D({
   points,
   hoveredPoint,
   controlsRef,
+  background,
   onHover,
   onSelect,
 }: {
   points: (GalaxyPoint & { displayColor: string })[];
   hoveredPoint: GalaxyPoint | null;
   controlsRef: OrbitControlsRef;
+  background: string;
   onHover: (specimenId: string | null) => void;
   onSelect: (point: GalaxyPoint) => void;
 }) {
@@ -156,7 +173,7 @@ function Galaxy3D({
       dpr={[1, 2]}
       gl={{ antialias: true }}
     >
-      <color attach="background" args={["#070b09"]} />
+      <color attach="background" args={[background]} />
       <ambientLight intensity={1.2} />
       <RaycasterTuning threshold={POINT_PICK_THRESHOLD} />
       <PointCloud points={points} onHover={onHover} onSelect={onSelect} />
@@ -183,12 +200,14 @@ function Galaxy2D({
   points,
   focusSpecies,
   hoveredId,
+  dimColor,
   onHover,
   onSelect,
 }: {
   points: GalaxyPoint[];
   focusSpecies: string | null;
   hoveredId: string | null;
+  dimColor: string;
   onHover: (specimenId: string | null) => void;
   onSelect: (point: GalaxyPoint) => void;
 }) {
@@ -212,7 +231,7 @@ function Galaxy2D({
               cx={toScreen(p.x)}
               cy={toScreen(-p.y)}
               r={active ? 5.5 : dimmed ? 2 : 3.4}
-              fill={dimmed ? DIM_COLOR : p.color}
+              fill={dimmed ? dimColor : p.color}
               opacity={dimmed ? 0.35 : 1}
               className="galaxy-2d-point"
               onMouseEnter={() => onHover(p.specimen_id)}
@@ -413,6 +432,8 @@ export function GalaxyPage() {
   const [viewMode, setViewMode] = useState<"3d" | "2d">("2d");
   const capability = use3DCapability();
   const controlsRef = useRef<ElementRef<typeof OrbitControls>>(null);
+  const dimColor = useCssVar("--galaxy-dim", DIM_COLOR);
+  const canvasBg = useCssVar("--galaxy-canvas-bg", GALAXY_CANVAS_BG);
 
   const toggleFocus = (name: string) =>
     setFocusSpecies((cur) => (cur === name ? null : name));
@@ -442,9 +463,9 @@ export function GalaxyPage() {
     () =>
       (data?.points ?? []).map((p) => ({
         ...p,
-        displayColor: !focusSpecies || p.label_name === focusSpecies ? p.color : DIM_COLOR,
+        displayColor: !focusSpecies || p.label_name === focusSpecies ? p.color : dimColor,
       })),
-    [data, focusSpecies],
+    [data, focusSpecies, dimColor],
   );
 
   const hoveredPoint = useMemo(
@@ -532,6 +553,7 @@ export function GalaxyPage() {
                 points={coloredPoints}
                 hoveredPoint={hoveredPoint}
                 controlsRef={controlsRef}
+                background={canvasBg}
                 onHover={setHoveredId}
                 onSelect={setSelected}
               />
@@ -541,6 +563,7 @@ export function GalaxyPage() {
               points={data.points}
               focusSpecies={focusSpecies}
               hoveredId={hoveredId}
+              dimColor={dimColor}
               onHover={setHoveredId}
               onSelect={setSelected}
             />

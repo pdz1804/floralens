@@ -36,7 +36,7 @@
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  font-size: 11px;
+  font-size: var(--text-2xs);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -48,7 +48,7 @@
 /* ---- Legend --------------------------------------------------------------- */
 .legendMeta {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-2xs);
   color: var(--faint);
   background: var(--panel-2);
   border: 1px solid var(--line);
@@ -84,7 +84,7 @@
   align-items: center;
   gap: 10px;
   font-family: inherit;
-  font-size: 13px;
+  font-size: var(--text-sm);
   color: var(--muted);
   background: transparent;
   border: 1px solid transparent;
@@ -119,12 +119,12 @@
 }
 .legendCount {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-2xs);
   font-weight: 600;
   color: var(--faint);
   background: var(--panel-3);
   padding: 2px 7px;
-  border-radius: var(--pill);
+  border-radius: 6px;
   min-width: 22px;
   text-align: center;
 }
@@ -139,7 +139,7 @@
 .legendFoot {
   padding: 9px 14px 11px;
   border-top: 1px solid var(--line);
-  font-size: 11.5px;
+  font-size: var(--text-xs);
   line-height: 1.45;
   color: var(--faint);
 }
@@ -158,7 +158,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: 12.5px;
+  font-size: var(--text-xs);
   color: var(--muted);
   line-height: 1.3;
 }
@@ -167,7 +167,7 @@
   min-width: 58px;
   text-align: center;
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: var(--text-2xs);
   font-weight: 600;
   letter-spacing: 0.01em;
   color: var(--ink);
@@ -223,7 +223,7 @@
   gap: 9px;
   margin: 0 0 4px;
   font-family: var(--font-serif-stack);
-  font-size: 17px;
+  font-size: var(--text-lg);
   font-weight: 600;
   line-height: 1.2;
   text-transform: capitalize;
@@ -239,7 +239,7 @@
 .specimenId {
   display: inline-block;
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: var(--text-2xs);
   color: var(--faint);
   background: var(--panel-2);
   border: 1px solid var(--line);
@@ -251,7 +251,7 @@
   white-space: nowrap;
 }
 .specimenFocus {
-  margin-top: 12px;
+  margin-top: var(--space-3);
   width: 100%;
   justify-content: center;
 }

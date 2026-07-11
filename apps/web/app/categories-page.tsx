@@ -392,8 +392,7 @@ export function CategoriesPage() {
               ) : (
                 <button
                   type="button"
-                  className="btn btn-primary"
-                  style={{ width: "auto", margin: 0 }}
+                  className={`btn btn-primary ${styles.saveBtn}`}
                   onClick={() => onSave(selected.specimen_id)}
                   disabled={savingId === selected.specimen_id}
                 >

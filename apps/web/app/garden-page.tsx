@@ -169,7 +169,7 @@ export function GardenPage() {
               <span className="sub">by id</span>
             </div>
             <div className="body">
-              <label className="field-label" htmlFor="garden-add-id" style={{ marginTop: 0 }}>
+              <label className={`field-label ${styles.addLabel}`} htmlFor="garden-add-id">
                 Specimen id
               </label>
               <p className={styles.helper}>
