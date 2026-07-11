@@ -3,7 +3,7 @@ import { test, expect } from "@playwright/test";
 const SHOTS = "../../../plans/260709-1427-dual-app-buildout/reports/floralens-ui/screens";
 
 test("theme toggle + tabs + about render", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/app");
   await page.screenshot({ path: `${SHOTS}/theme-light.png`, fullPage: true });
 
   // Cycle theme to dark and verify it applied.

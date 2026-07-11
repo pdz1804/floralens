@@ -11,7 +11,7 @@ const QUERY_IMG = path.resolve(
 
 test.describe("FloraLens flower search UI", () => {
   test("backend online + page loads", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("/app");
     await expect(page.getByRole("heading", { name: "FloraLens" })).toBeVisible();
     await expect(page.getByTestId("health-meta")).toContainText("model", { timeout: 15_000 });
     await expect(page.getByTestId("health-dot")).toHaveClass(/ok/);
@@ -19,7 +19,7 @@ test.describe("FloraLens flower search UI", () => {
   });
 
   test("upload flower → scored similar matches (real retrieval)", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("/app");
     await page.getByTestId("file-input").setInputFiles(QUERY_IMG);
     await expect(page.getByTestId("preview")).toBeVisible();
     await page.getByTestId("search-btn").click();
@@ -44,7 +44,7 @@ test.describe("FloraLens flower search UI", () => {
   });
 
   test("confidence band filter narrows results", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("/app");
     await page.getByTestId("file-input").setInputFiles(QUERY_IMG);
     await page.getByTestId("search-btn").click();
     await expect(page.getByTestId("results")).toBeVisible({ timeout: 30_000 });

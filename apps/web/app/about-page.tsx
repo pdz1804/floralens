@@ -39,7 +39,7 @@ const FEATURES = [
   },
   {
     icon: LayersIcon,
-    title: "DINOv3-style embeddings",
+    title: "DINOv2 embeddings",
     body: "Every image is projected into a high-dimensional embedding by a frozen vision backbone, so matches are ranked on rich visual structure.",
   },
   {

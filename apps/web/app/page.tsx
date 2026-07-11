@@ -1,630 +1,375 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { motion, useReducedMotion } from "motion/react";
+import { motion, useMotionTemplate, useMotionValue, useReducedMotion } from "motion/react";
+import type { ReactNode } from "react";
 import {
-  bandFor,
-  getHealth,
-  MAX_UPLOAD_BYTES,
-  searchImage,
-  type Health,
-  type SearchResult,
-} from "@/lib/api";
-import {
-  AlertIcon,
   BloomIcon,
   CameraLeafIcon,
-  LinkIcon,
+  ChartIcon,
+  GaugeIcon,
+  GridIcon,
+  LayersIcon,
   SearchIcon,
+  SendIcon,
   SparkleIcon,
 } from "./icons";
 import { ThemeToggle } from "./theme-toggle";
-import { ResultDesc } from "./result-desc";
-import { PipelinePage } from "./pipeline-page";
-import { GalaxyPage } from "./galaxy-page";
-import { CategoriesPage } from "./categories-page";
-import { AssistantPage } from "./assistant-page";
-import { GardenPage } from "./garden-page";
-import { AboutPage } from "./about-page";
+import styles from "./landing.module.css";
 
-type Phase = "idle" | "searching" | "done" | "error";
-type Tab = "search" | "pipeline" | "galaxy" | "categories" | "assistant" | "garden" | "about";
-
-const TABS: { id: Tab; label: string }[] = [
-  { id: "search", label: "Search" },
-  { id: "pipeline", label: "Pipeline" },
-  { id: "galaxy", label: "Galaxy" },
-  { id: "categories", label: "Categories" },
-  { id: "assistant", label: "Assistant" },
-  { id: "garden", label: "Garden" },
-  { id: "about", label: "About" },
-];
-
-// Display-only band metadata for the grouped results view + filter chips.
-// Ordered strongest → weakest so sections always read High → Medium → Low.
-type Band = "high" | "medium" | "low";
-const BAND_ORDER: Band[] = ["high", "medium", "low"];
-const BAND_META: Record<Band, { label: string; note: string }> = {
-  high: { label: "High", note: "strong visual matches" },
-  medium: { label: "Medium", note: "plausible — verify the details" },
-  low: { label: "Low", note: "weaker matches, interpret with care" },
-};
-const CHIP_LABEL: Record<"all" | Band, string> = {
-  all: "All",
-  high: "High",
-  medium: "Medium",
-  low: "Low",
-};
-
-// Shared editorial easing (expo-out) for motivated entrance motion.
+// Shared editorial easing (expo-out) - one motion signature across the page.
 const EASE = [0.16, 1, 0.3, 1] as const;
 
-export default function Page() {
+// Real gallery specimens, served through the same /api proxy the app uses.
+// Each frame carries a botanical gradient fallback, so a missing backend
+// degrades to a tinted panel rather than a broken image.
+const HERO_IDS = ["flowers102-te05815", "flowers102-te00489", "flowers102-te05322", "flowers102-te05617"];
+const STRIP_IDS = [
+  "flowers102-te05815",
+  "flowers102-te00489",
+  "flowers102-te05322",
+  "flowers102-te05617",
+  "flowers102-te01172",
+];
+
+const FLOW = [
+  { icon: CameraLeafIcon, verb: "Upload", text: "Drop, browse, or paste a link to any flower photo." },
+  { icon: LayersIcon, verb: "Embed", text: "A frozen vision backbone turns the image into a dense embedding." },
+  { icon: SearchIcon, verb: "Rank", text: "The gallery is scored by visual similarity and ordered best first." },
+  { icon: GaugeIcon, verb: "Read", text: "Every match lands in a calibrated High, Medium, or Low band." },
+] as const;
+
+function specimenSrc(id: string) {
+  return `/api/specimen/${encodeURIComponent(id)}/image`;
+}
+
+function hideOnError(e: React.SyntheticEvent<HTMLImageElement>) {
+  // Leave the frame's gradient fallback visible instead of a broken glyph.
+  e.currentTarget.style.visibility = "hidden";
+}
+
+/** Capability cell with an optional cursor-follow spotlight (motion values, no
+ *  state, no re-render). Falls back to a plain card under reduced motion. */
+function Cell({
+  className,
+  icon: Icon,
+  title,
+  children,
+  reduce,
+  extra,
+}: {
+  className?: string;
+  icon: (p: { width: number; height: number }) => ReactNode;
+  title: string;
+  children: ReactNode;
+  reduce: boolean;
+  extra?: ReactNode;
+}) {
+  const mx = useMotionValue(0);
+  const my = useMotionValue(0);
+  const spotlight = useMotionTemplate`radial-gradient(240px circle at ${mx}px ${my}px, color-mix(in srgb, var(--primary) 14%, transparent), transparent 72%)`;
+  return (
+    <motion.article
+      className={`${styles.cell} ${className ?? ""}`}
+      variants={reduce ? undefined : itemVariants}
+      whileHover={reduce ? undefined : { y: -4 }}
+      transition={{ type: "spring", stiffness: 320, damping: 26 }}
+      onMouseMove={
+        reduce
+          ? undefined
+          : (e) => {
+              const r = e.currentTarget.getBoundingClientRect();
+              mx.set(e.clientX - r.left);
+              my.set(e.clientY - r.top);
+            }
+      }
+    >
+      {!reduce && <motion.span className={styles.spotlight} style={{ background: spotlight }} aria-hidden="true" />}
+      <span className={styles.cellIco} aria-hidden="true">
+        <Icon width={22} height={22} />
+      </span>
+      <h3 className={styles.cellTitle}>{title}</h3>
+      <p className={styles.cellText}>{children}</p>
+      {extra}
+    </motion.article>
+  );
+}
+
+const containerVariants = {
+  hidden: {},
+  show: { transition: { staggerChildren: 0.07 } },
+};
+const itemVariants = {
+  hidden: { opacity: 0, y: 24 },
+  show: { opacity: 1, y: 0, transition: { duration: 0.55, ease: EASE } },
+};
+
+export default function LandingPage() {
   const reduce = useReducedMotion() ?? false;
-  const [health, setHealth] = useState<Health | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [file, setFile] = useState<Blob | null>(null);
-  const [urlInput, setUrlInput] = useState("");
-  const [phase, setPhase] = useState<Phase>("idle");
-  const [error, setError] = useState<string | null>(null);
-  const [results, setResults] = useState<SearchResult[]>([]);
-  const [modelVersion, setModelVersion] = useState<string>("");
-  const [bandFilter, setBandFilter] = useState<"all" | "high" | "medium" | "low">("all");
-  const [dragging, setDragging] = useState(false);
-  const [tab, setTab] = useState<Tab>("search");
-  const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
-  const fileRef = useRef<HTMLInputElement>(null);
-  // Guards against a stale search response overwriting results for a newer image.
-  const searchSeq = useRef(0);
-  const searchAbort = useRef<AbortController | null>(null);
 
-  useEffect(() => {
-    getHealth().then(setHealth).catch(() => setHealth(null));
-    return () => searchAbort.current?.abort();
-  }, []);
-
-  const setImage = useCallback((blob: Blob) => {
-    if (blob.size === 0) {
-      setError("That file is empty — choose a flower photo.");
-      setPhase("error");
-      return;
-    }
-    if (!blob.type.startsWith("image/")) {
-      setError("Please choose an image file (jpg, png, webp).");
-      setPhase("error");
-      return;
-    }
-    if (blob.size > MAX_UPLOAD_BYTES) {
-      setError(`Image is too large (max ${Math.round(MAX_UPLOAD_BYTES / 1024 / 1024)} MB).`);
-      setPhase("error");
-      return;
-    }
-    // Invalidate any in-flight search so its late response is ignored.
-    searchSeq.current += 1;
-    searchAbort.current?.abort();
-    setError(null);
-    setFile(blob); // preview URL is derived from `file` in the effect below.
-    setResults([]);
-    setPhase("idle");
-  }, []);
-
-  // Own the object-URL lifecycle in one place, keyed on the selected file.
-  useEffect(() => {
-    if (!file) {
-      setPreviewUrl(null);
-      return;
-    }
-    const url = URL.createObjectURL(file);
-    setPreviewUrl(url);
-    return () => URL.revokeObjectURL(url);
-  }, [file]);
-
-  function onPick(e: React.ChangeEvent<HTMLInputElement>) {
-    const f = e.target.files?.[0];
-    if (f) setImage(f);
-  }
-  function onDrop(e: React.DragEvent) {
-    e.preventDefault();
-    setDragging(false);
-    const f = e.dataTransfer.files?.[0];
-    if (f) setImage(f);
-  }
-  async function onLoadUrl() {
-    if (!urlInput.trim()) return;
-    setError(null);
-    try {
-      const r = await fetch(urlInput.trim());
-      if (!r.ok) throw new Error(`fetch ${r.status}`);
-      setImage(await r.blob());
-    } catch (e) {
-      setError(`Could not load image from URL: ${(e as Error).message}`);
-      setPhase("error");
-    }
-  }
-
-  async function onSearch() {
-    if (!file) return;
-    const seq = ++searchSeq.current;
-    const ctrl = new AbortController();
-    searchAbort.current = ctrl;
-    setPhase("searching");
-    setError(null);
-    setResults([]);
-    setBandFilter("all");
-    try {
-      const res = await searchImage(file, ctrl.signal);
-      if (seq !== searchSeq.current) return; // superseded by a newer image/search
-      setResults(res.results);
-      setModelVersion(res.model_version);
-      setPhase("done");
-    } catch (e) {
-      if ((e as Error).name === "AbortError" || seq !== searchSeq.current) return;
-      setError((e as Error).message);
-      setPhase("error");
-    }
-  }
-
-  // Roving-focus keyboard nav for the tablist (WAI-ARIA tabs pattern).
-  function onTabKey(e: React.KeyboardEvent, i: number) {
-    let next = i;
-    if (e.key === "ArrowRight" || e.key === "ArrowDown") next = (i + 1) % TABS.length;
-    else if (e.key === "ArrowLeft" || e.key === "ArrowUp") next = (i - 1 + TABS.length) % TABS.length;
-    else if (e.key === "Home") next = 0;
-    else if (e.key === "End") next = TABS.length - 1;
-    else return;
-    e.preventDefault();
-    setTab(TABS[next].id);
-    tabRefs.current[next]?.focus();
-  }
-
-  const shown = useMemo(
-    () => (bandFilter === "all" ? results : results.filter((r) => bandFor(r) === bandFilter)),
-    [results, bandFilter],
-  );
-  // Stable original rank per specimen (avoids O(n²) indexOf during render).
-  const rankOf = useMemo(() => {
-    const m = new Map<string, number>();
-    results.forEach((r, i) => m.set(r.specimen_id, i + 1));
-    return m;
-  }, [results]);
-  // Read-only bucketing of results by confidence band, preserving score order.
-  // Powers the grouped "All" view, per-chip counts and the empty-state hint —
-  // derived purely from `results` + `bandFor`, never mutates search state.
-  const groups = useMemo(() => {
-    const g: Record<Band, SearchResult[]> = { high: [], medium: [], low: [] };
-    for (const r of results) g[bandFor(r)].push(r);
-    return g;
-  }, [results]);
-  const counts: Record<Band, number> = {
-    high: groups.high.length,
-    medium: groups.medium.length,
-    low: groups.low.length,
-  };
-  // Bands to render as sections: every non-empty band in "All", else the one
-  // selected band. Empty selection falls through to the band-aware empty state.
-  const visibleBands: Band[] =
-    bandFilter === "all" ? BAND_ORDER.filter((b) => counts[b] > 0) : [bandFilter];
-  const suggestBand = BAND_ORDER.find((b) => counts[b] > 0);
-  // Summary reflects the CURRENT view: top of `shown`, not always results[0].
-  const shownTop = shown[0];
-  const shownDistinct = useMemo(
-    () => new Set(shown.map((r) => r.label_name)).size,
-    [shown],
-  );
-
-  // Single source of truth for a result card so grouped sections and the
-  // filtered view stay identical. Display-only — preserves every data-testid.
-  const renderCard = (r: SearchResult, i: number) => {
-    const b = bandFor(r);
-    const pct = Math.max(0, Math.round((r.confidence ?? r.score) * 100));
-    return (
-      <motion.article
-        className="result"
-        data-testid="result-card"
-        key={r.specimen_id}
-        initial={reduce ? false : { opacity: 0, y: 12 }}
-        animate={reduce ? undefined : { opacity: 1, y: 0 }}
-        transition={reduce ? undefined : { duration: 0.35, ease: EASE, delay: Math.min(i * 0.05, 0.4) }}
-        whileHover={reduce ? undefined : { y: -4 }}
-        whileTap={reduce ? undefined : { scale: 0.98 }}
-      >
-        <div className="thumb-wrap">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            className="thumb"
-            data-testid="result-thumb"
-            src={`/api/specimen/${encodeURIComponent(r.specimen_id)}/image`}
-            alt={r.label_name}
-            loading="lazy"
-            onError={(e) => {
-              e.currentTarget.style.visibility = "hidden";
-            }}
-          />
-          <span className="rank">#{rankOf.get(r.specimen_id)} · {r.specimen_id}</span>
-        </div>
-        <div className="meta">
-          <h4 className="name" data-testid="result-name">{r.label_name}</h4>
-          <div className="barwrap">
-            <div className={`bar ${b}`} style={{ width: `${Math.max(3, pct)}%` }} />
-          </div>
-          <div className="scoreline">
-            <span className={`band ${b}`}>{b}</span>
-            <span className="pct" data-testid="result-score">{pct}%</span>
-          </div>
-        </div>
-      </motion.article>
-    );
-  };
+  const reveal = reduce
+    ? {}
+    : {
+        initial: { opacity: 0, y: 24 },
+        whileInView: { opacity: 1, y: 0 },
+        viewport: { once: true, amount: 0.3 },
+        transition: { duration: 0.6, ease: EASE },
+      };
+  const gridReveal = reduce
+    ? {}
+    : {
+        variants: containerVariants,
+        initial: "hidden" as const,
+        whileInView: "show" as const,
+        viewport: { once: true, amount: 0.2 },
+      };
 
   return (
-    <>
-      <header className="topbar">
-        <div className="brand">
-          <span className="mark" aria-hidden="true">
-            <BloomIcon width={22} height={22} />
+    <div className={styles.page}>
+      {/* -------- Sticky header -------- */}
+      <header className={styles.nav}>
+        <a className={styles.brand} href="#top" aria-label="FloraLens home">
+          <span className={styles.brandMark} aria-hidden="true">
+            <BloomIcon width={21} height={21} />
           </span>
-          <div>
-            <h1 className="wordmark">FloraLens</h1>
-            <div className="tagline">Visual flower discovery &amp; similarity search</div>
-          </div>
-        </div>
-        <nav className="tabs" role="tablist" aria-label="Sections">
-          {TABS.map((t, i) => (
-            <button
-              key={t.id}
-              ref={(el) => {
-                tabRefs.current[i] = el;
-              }}
-              type="button"
-              role="tab"
-              id={`tab-${t.id}`}
-              aria-selected={tab === t.id}
-              aria-controls={`panel-${t.id}`}
-              tabIndex={tab === t.id ? 0 : -1}
-              className={`tab ${tab === t.id ? "active" : ""}`}
-              data-testid={`tab-${t.id}`}
-              onClick={() => setTab(t.id)}
-              onKeyDown={(e) => onTabKey(e, i)}
-            >
-              {t.label}
-            </button>
-          ))}
+          <span className={styles.wordmark}>FloraLens</span>
+        </a>
+        <span className={styles.navSpacer} />
+        <nav className={styles.navLinks} aria-label="Page sections">
+          <a className={styles.navLink} href="#how">How it works</a>
+          <a className={styles.navLink} href="#capabilities">Capabilities</a>
+          <a className={styles.navLink} href="#gallery">Gallery</a>
         </nav>
-        <span className="spacer" />
-        <div className="topbar-actions">
+        <div className={styles.navActions}>
           <ThemeToggle />
-          <div className="status">
-            <span className={`dot ${health ? "ok" : ""}`} data-testid="health-dot" />
-            <span className="meta" data-testid="health-meta">
-              {health ? `model: ${health.model_version}` : "backend offline"}
-            </span>
-          </div>
+          <a className={`${styles.btn} ${styles.btnPrimary} ${styles.navBtn}`} href="/app">
+            Launch FloraLens
+          </a>
         </div>
       </header>
 
-      <main className="wrap">
-        <div
-          role="tabpanel"
-          id="panel-search"
-          aria-labelledby="tab-search"
-          hidden={tab !== "search"}
-        >
-        <motion.section
-          className="hero"
-          {...(reduce
-            ? {}
-            : {
-                initial: { opacity: 0, y: 12 },
-                animate: { opacity: 1, y: 0 },
-                transition: { duration: 0.45, ease: EASE },
-              })}
-        >
-          <span className="eyebrow">
-            <BloomIcon width={14} height={14} /> Botanical intelligence
-          </span>
-          <h2>Find the flowers that look like yours.</h2>
-          <p>
-            Upload or link a photo and FloraLens embeds it, then surfaces visually similar
-            specimens from the gallery — each scored with a calibrated confidence band.
-          </p>
+      <main id="top">
+        {/* -------- 1. Hero (asymmetric split) -------- */}
+        <section className={styles.hero}>
+          <motion.div
+            {...(reduce
+              ? {}
+              : {
+                  initial: { opacity: 0, y: 20 },
+                  animate: { opacity: 1, y: 0 },
+                  transition: { duration: 0.6, ease: EASE },
+                })}
+          >
+            <span className={styles.eyebrow}>
+              <BloomIcon width={14} height={14} /> Visual plant identification
+            </span>
+            <h1 className={styles.heroTitle}>
+              Find the <em>flower</em> in any photo.
+            </h1>
+            <p className={styles.heroLead}>
+              Upload a photo and FloraLens ranks visually similar specimens from its gallery, each
+              scored with a calibrated confidence band.
+            </p>
+            <div className={styles.heroCtas}>
+              <a className={`${styles.btn} ${styles.btnPrimary} ${styles.btnLg}`} href="/app">
+                <SearchIcon width={18} height={18} aria-hidden="true" /> Launch FloraLens
+              </a>
+              <a className={`${styles.btn} ${styles.btnGhost} ${styles.btnLg}`} href="#how">
+                See how it works
+              </a>
+            </div>
+          </motion.div>
+
+          <motion.div
+            className={styles.heroCluster}
+            aria-hidden="true"
+            {...(reduce
+              ? {}
+              : {
+                  initial: { opacity: 0, scale: 0.96 },
+                  animate: { opacity: 1, scale: 1 },
+                  transition: { duration: 0.7, ease: EASE, delay: 0.1 },
+                })}
+          >
+            {HERO_IDS.map((id) => (
+              <div className={styles.frame} key={id}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={specimenSrc(id)} alt="" loading="eager" onError={hideOnError} />
+              </div>
+            ))}
+          </motion.div>
+        </section>
+
+        {/* -------- 2. How it works (horizontal verb-led flow) -------- */}
+        <motion.section className={styles.section} id="how" {...reveal}>
+          <div className={styles.sectionHead}>
+            <h2 className={styles.sectionTitle}>From a single photo to a ranked, scored match.</h2>
+            <p className={styles.sectionLead}>
+              No tags, no filenames. FloraLens compares how flowers actually look and shows you how
+              much to trust each result.
+            </p>
+          </div>
+          <motion.div className={styles.flow} {...gridReveal}>
+            {FLOW.map((s) => (
+              <motion.div className={styles.flowStep} key={s.verb} variants={reduce ? undefined : itemVariants}>
+                <span className={styles.flowNode} aria-hidden="true">
+                  <s.icon width={22} height={22} />
+                </span>
+                <h3 className={styles.flowVerb}>{s.verb}</h3>
+                <p className={styles.flowText}>{s.text}</p>
+              </motion.div>
+            ))}
+          </motion.div>
         </motion.section>
 
-        <div className="layout">
-          {/* LEFT: input */}
-          <section className="card left-card" aria-label="Query flower">
-            <div className="head">
-              <h3 className="title">Query flower</h3>
-              <span className="sub">upload · url</span>
-            </div>
-            <div className="body">
-              <div
-                className={`dropzone ${dragging ? "drag" : ""}`}
-                data-testid="dropzone"
-                role="button"
-                tabIndex={0}
-                aria-label="Upload a flower photo"
-                onClick={() => fileRef.current?.click()}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    fileRef.current?.click();
-                  }
-                }}
-                onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
-                onDragLeave={() => setDragging(false)}
-                onDrop={onDrop}
-              >
-                <span className="ico" aria-hidden="true">
-                  <CameraLeafIcon width={26} height={26} />
-                </span>
-                <p className="lead">Drop a flower photo here</p>
-                <p className="hint">Click to browse, drag &amp; drop, or paste an image</p>
-                <input
-                  ref={fileRef}
-                  type="file"
-                  accept="image/*"
-                  data-testid="file-input"
-                  onChange={onPick}
-                  style={{ display: "none" }}
-                />
-              </div>
-
-              <label className="field-label" htmlFor="url">
-                <LinkIcon width={15} height={15} /> …or load from a URL
-              </label>
-              <div className="url-row">
-                <span className="input-affix">
-                  <LinkIcon width={16} height={16} aria-hidden="true" />
-                  <input
-                    id="url"
-                    type="text"
-                    placeholder="https://…/flower.jpg"
-                    value={urlInput}
-                    onChange={(e) => setUrlInput(e.target.value)}
-                    data-testid="url-input"
-                  />
-                </span>
-                <button type="button" className="btn btn-ghost" onClick={onLoadUrl}>
-                  Load
-                </button>
-              </div>
-
-              {previewUrl && (
-                <div className="preview" data-testid="preview">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={previewUrl} alt="query preview" />
-                </div>
-              )}
-
-              <button
-                type="button"
-                className="btn btn-primary"
-                data-testid="search-btn"
-                onClick={onSearch}
-                disabled={!file || phase === "searching"}
-              >
-                {phase === "searching" ? (
-                  <>
-                    <span className="spin" aria-hidden="true" /> Searching…
-                  </>
-                ) : (
-                  <>
-                    <SearchIcon width={17} height={17} aria-hidden="true" /> Find similar flowers
-                  </>
-                )}
-              </button>
-              {error && (
-                <p className="err" data-testid="error">
-                  <AlertIcon width={16} height={16} aria-hidden="true" />
-                  <span>{error}</span>
-                </p>
-              )}
-            </div>
-          </section>
-
-          {/* RIGHT: results */}
-          <section className="card" aria-label="Matches">
-            <div className="head">
-              <h3 className="title">Matches</h3>
-              {modelVersion && <span className="sub">model {modelVersion}</span>}
-            </div>
-            <div className="body">
-              {results.length > 0 && (
-                <div className="filters" data-testid="filters">
-                  {(["all", "high", "medium", "low"] as const).map((b) => {
-                    const n = b === "all" ? results.length : counts[b];
-                    const disabled = b !== "all" && n === 0;
-                    return (
-                      <button
-                        type="button"
-                        key={b}
-                        className={`chip ${b !== "all" ? `chip-${b}` : ""} ${
-                          bandFilter === b ? "active" : ""
-                        } ${disabled ? "chip-disabled" : ""}`}
-                        data-testid={`filter-${b}`}
-                        aria-pressed={bandFilter === b}
-                        aria-disabled={disabled || undefined}
-                        onClick={() => {
-                          if (!disabled) setBandFilter(b);
-                        }}
-                      >
-                        <span className="chip-label">{CHIP_LABEL[b]}</span>
-                        <span className="chip-count">{n}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-
-              {phase === "searching" && (
-                <div className="grid" data-testid="loading" aria-busy="true" aria-label="Searching the gallery">
-                  {Array.from({ length: 6 }).map((_, i) => (
-                    <div className="skeleton-card" key={i}>
-                      <div className="sk sk-thumb" />
-                      <div className="sk-body">
-                        <div className="sk sk-line w-70" />
-                        <div className="sk sk-bar" />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {phase === "idle" && results.length === 0 && (
-                <div className="state">
-                  <span className="state-ico" aria-hidden="true">
-                    <SparkleIcon width={26} height={26} />
-                  </span>
-                  <span className="state-title">Ready when you are</span>
-                  <p>Choose a flower photo and search to see scored, ranked matches.</p>
-                </div>
-              )}
-              {phase === "error" && results.length === 0 && (
-                <div className="state error">
-                  <span className="state-ico" aria-hidden="true">
-                    <AlertIcon width={26} height={26} />
-                  </span>
-                  <span className="state-title">Something went wrong</span>
-                  {/* Specific reason is shown once, next to the query panel. */}
-                  <p>Check the photo and try again — the details are on the left.</p>
-                </div>
-              )}
-              {phase === "done" && results.length === 0 && (
-                <div className="state">
-                  <span className="state-ico" aria-hidden="true">
-                    <SparkleIcon width={26} height={26} />
-                  </span>
-                  <span className="state-title">No matches found</span>
-                  <p>Try a clearer, closer photo of a single bloom.</p>
-                </div>
-              )}
-
-              {/* Summary tracks the active filter: top of the CURRENT view. */}
-              {phase === "done" && shownTop && (
-                <div className="top-match" data-testid="top-match">
-                  <div className="top-match-thumb" aria-hidden="true">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={`/api/specimen/${encodeURIComponent(shownTop.specimen_id)}/image`}
-                      alt=""
-                      loading="lazy"
-                      onError={(e) => {
-                        e.currentTarget.style.visibility = "hidden";
-                      }}
-                    />
+        {/* -------- 3. Capabilities (bento) -------- */}
+        <motion.section className={styles.section} id="capabilities" {...reveal}>
+          <div className={styles.sectionHead}>
+            <h2 className={styles.sectionTitle}>Built so every match can be trusted.</h2>
+            <p className={styles.sectionLead}>
+              Six choices keep the results honest, reproducible, and easy to reason about.
+            </p>
+          </div>
+          <motion.div className={styles.bento} {...gridReveal}>
+            {/* Lead cell: calibrated confidence, with a real mini-band visual. */}
+            <Cell
+              className={styles.cellLead}
+              icon={GaugeIcon}
+              title="Calibrated confidence"
+              reduce={reduce}
+              extra={
+                <div className={styles.bands} aria-hidden="true">
+                  <div className={styles.bandRow}>
+                    <span className={`${styles.bandName} ${styles.high}`}>High</span>
+                    <span className={styles.bandTrack}><span className={`${styles.bandFill} ${styles.high}`} style={{ width: "86%" }} /></span>
                   </div>
-                  <div className="top-match-body">
-                    <span className="top-match-label">
-                      <SparkleIcon width={13} height={13} aria-hidden="true" />{" "}
-                      {bandFilter === "all"
-                        ? "Top match"
-                        : `Top ${BAND_META[bandFilter].label.toLowerCase()} match`}
-                    </span>
-                    <div className="top-match-headline">
-                      <h4 className="top-match-name">{shownTop.label_name}</h4>
-                      <span className={`band ${bandFor(shownTop)}`}>{bandFor(shownTop)}</span>
-                      {shownDistinct === 1 && shown.length > 1 && (
-                        <span className="top-match-count">
-                          all {shown.length} matches
-                        </span>
-                      )}
-                    </div>
-                    {shownTop.description ? (
-                      <ResultDesc text={shownTop.description} />
-                    ) : null}
+                  <div className={styles.bandRow}>
+                    <span className={`${styles.bandName} ${styles.med}`}>Medium</span>
+                    <span className={styles.bandTrack}><span className={`${styles.bandFill} ${styles.med}`} style={{ width: "58%" }} /></span>
+                  </div>
+                  <div className={styles.bandRow}>
+                    <span className={`${styles.bandName} ${styles.low}`}>Low</span>
+                    <span className={styles.bandTrack}><span className={`${styles.bandFill} ${styles.low}`} style={{ width: "31%" }} /></span>
                   </div>
                 </div>
-              )}
+              }
+            >
+              Raw cosine scores become honest High, Medium, and Low bands, so a percentage means what
+              it says.
+            </Cell>
 
-              {/* Grouped-by-confidence view: every match visible on one page,
-                  organised High → Medium → Low. In a filtered view only the
-                  selected band's section renders. */}
-              {results.length > 0 && shown.length > 0 && (
-                <div className="results-groups" data-testid="results">
-                  {visibleBands.map((b) =>
-                    counts[b] > 0 ? (
-                      <section
-                        className="band-section"
-                        data-testid={`band-section-${b}`}
-                        key={b}
-                      >
-                        <header className="band-section-head">
-                          <span className={`band-section-title ${b}`}>
-                            <span className="band-dot" aria-hidden="true" />
-                            {BAND_META[b].label}
-                          </span>
-                          <span className={`band-section-count ${b}`}>{counts[b]}</span>
-                          <span className="band-section-note">{BAND_META[b].note}</span>
-                        </header>
-                        <div className="grid">{groups[b].map((r, i) => renderCard(r, i))}</div>
-                      </section>
-                    ) : null,
-                  )}
-                </div>
-              )}
+            {/* Photo cell: real gallery specimen with a scrimmed caption. */}
+            <motion.article
+              className={`${styles.cell} ${styles.cellPhoto}`}
+              variants={reduce ? undefined : itemVariants}
+              aria-label="A specimen from the FloraLens gallery"
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={specimenSrc("flowers102-te01172")} alt="" loading="lazy" onError={hideOnError} />
+              <span className={styles.cellPhotoCap}>A curated gallery</span>
+            </motion.article>
 
-              {/* A selected band with no members never leaves a blank grid. */}
-              {results.length > 0 && shown.length === 0 && bandFilter !== "all" && (
-                <div className="state" data-testid="band-empty">
-                  <span className="state-ico" aria-hidden="true">
-                    <SparkleIcon width={26} height={26} />
-                  </span>
-                  <span className="state-title">
-                    No {BAND_META[bandFilter].label.toLowerCase()}-confidence matches
-                  </span>
-                  <p>
-                    No {BAND_META[bandFilter].label.toLowerCase()}-confidence matches for this
-                    photo{suggestBand ? ` — try the ${BAND_META[suggestBand].label} band` : ""}.
-                  </p>
-                  <button
-                    type="button"
-                    className="btn btn-ghost band-empty-cta"
-                    onClick={() => setBandFilter("all")}
-                  >
-                    Show all matches
-                  </button>
-                </div>
-              )}
-              {results.length > 0 && (
-                <p className="note">
-                  Confidence banding is {results[0]?.band ? "calibrated (Phase 3b)" : "provisional from raw cosine (calibrated in Phase 3b)"}.
-                </p>
-              )}
+            <Cell icon={LayersIcon} title="DINOv2 embeddings" reduce={reduce}>
+              A frozen vision backbone projects each image into a rich embedding built on visual
+              structure.
+            </Cell>
+
+            <Cell icon={ChartIcon} title="Leakage-free evaluation" reduce={reduce}>
+              Train, validation, and test splits stay separate, so reported scores reflect held-out
+              performance.
+            </Cell>
+
+            <Cell icon={GridIcon} title="Transparent pipeline" reduce={reduce}>
+              Every stage, from preprocessing to the promotion decision, is visible with live metrics
+              inside the app.
+            </Cell>
+
+            <Cell className={styles.cellWide} icon={SparkleIcon} title="Explore the embedding space" reduce={reduce}>
+              Fly through the whole gallery as a 3D point cloud, or ask the naturalist assistant about
+              a species beside your matches.
+            </Cell>
+          </motion.div>
+        </motion.section>
+
+        {/* -------- 4. Gallery strip (filmstrip) -------- */}
+        <motion.section className={`${styles.section} ${styles.stripSection}`} id="gallery" {...reveal}>
+          <div className={styles.sectionHead}>
+            <h2 className={styles.sectionTitle}>A gallery of real specimens.</h2>
+            <p className={styles.sectionLead}>
+              Every search ranks against curated photographs like these.
+            </p>
+          </div>
+          <div className={styles.strip}>
+            {STRIP_IDS.map((id) => (
+              <div className={styles.stripItem} key={id}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={specimenSrc(id)} alt="" loading="lazy" onError={hideOnError} />
+              </div>
+            ))}
+          </div>
+        </motion.section>
+
+        {/* -------- 5. Honest numbers (editorial stats) -------- */}
+        <section className={styles.numbers}>
+          <motion.div className={styles.numbersInner} {...reveal}>
+            <div>
+              <p className={styles.numbersLead}>A confidence score only helps if it is earned on held-out data.</p>
+              <p className={styles.numbersNote}>Running as a demo on the Oxford-102 flowers dataset.</p>
             </div>
-          </section>
-        </div>
-        </div>
+            <div className={styles.statRow}>
+              <div className={styles.stat}>
+                <span className={styles.statValue}>1024-d</span>
+                <span className={styles.statLabel}>Embedding dimensions per specimen</span>
+              </div>
+              <div className={styles.stat}>
+                <span className={styles.statValue}>102</span>
+                <span className={styles.statLabel}>Flower species in the gallery</span>
+              </div>
+              <div className={styles.stat}>
+                <span className={styles.statValue}>3</span>
+                <span className={styles.statLabel}>Calibrated confidence bands</span>
+              </div>
+            </div>
+          </motion.div>
+        </section>
 
-        {tab === "pipeline" && (
-          <div role="tabpanel" id="panel-pipeline" aria-labelledby="tab-pipeline">
-            <PipelinePage />
-          </div>
-        )}
-        {tab === "galaxy" && (
-          <div role="tabpanel" id="panel-galaxy" aria-labelledby="tab-galaxy">
-            <GalaxyPage />
-          </div>
-        )}
-        {tab === "categories" && (
-          <div role="tabpanel" id="panel-categories" aria-labelledby="tab-categories">
-            <CategoriesPage />
-          </div>
-        )}
-        {tab === "assistant" && (
-          <div role="tabpanel" id="panel-assistant" aria-labelledby="tab-assistant">
-            <AssistantPage />
-          </div>
-        )}
-        {tab === "garden" && (
-          <div role="tabpanel" id="panel-garden" aria-labelledby="tab-garden">
-            <GardenPage />
-          </div>
-        )}
-        {tab === "about" && (
-          <div role="tabpanel" id="panel-about" aria-labelledby="tab-about" tabIndex={0}>
-            <AboutPage />
-          </div>
-        )}
+        {/* -------- 6. Closing CTA band -------- */}
+        <section className={styles.cta}>
+          <motion.div className={styles.ctaInner} {...reveal}>
+            <h2 className={styles.ctaTitle}>
+              Identify your <em>first</em> flower.
+            </h2>
+            <p className={styles.ctaText}>Open the app, add a photo, and read the matches in seconds.</p>
+            <a className={`${styles.btn} ${styles.btnPrimary} ${styles.btnLg}`} href="/app">
+              <SearchIcon width={18} height={18} aria-hidden="true" /> Launch FloraLens
+            </a>
+          </motion.div>
+        </section>
       </main>
-    </>
+
+      {/* -------- 7. Footer -------- */}
+      <footer className={styles.footer}>
+        <div className={styles.footerInner}>
+          <div className={styles.footerBrand}>
+            <a className={styles.brand} href="#top" aria-label="FloraLens home">
+              <span className={styles.brandMark} aria-hidden="true">
+                <BloomIcon width={21} height={21} />
+              </span>
+              <span className={styles.wordmark}>FloraLens</span>
+            </a>
+            <p className={styles.footerTagline}>
+              Visual flower discovery and similarity search, with a confidence band on every match.
+            </p>
+            <p className={styles.footerNote}>Demo on the Oxford-102 flowers dataset.</p>
+          </div>
+          <div className={styles.footerLinks}>
+            <p className={styles.footerLinksTitle}>Explore</p>
+            <a className={styles.footerLink} href="/app">Launch FloraLens</a>
+            <a className={styles.footerLink} href="#how">How it works</a>
+            <a className={styles.footerLink} href="#capabilities">Capabilities</a>
+            <a className={styles.footerLink} href="#gallery">Gallery</a>
+          </div>
+        </div>
+      </footer>
+    </div>
   );
 }
