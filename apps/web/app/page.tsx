@@ -1,16 +1,17 @@
 "use client";
 
 import { motion, useMotionTemplate, useMotionValue, useReducedMotion } from "motion/react";
-import type { ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   BloomIcon,
   CameraLeafIcon,
   ChartIcon,
+  ChevronIcon,
   GaugeIcon,
+  GithubIcon,
   GridIcon,
   LayersIcon,
   SearchIcon,
-  SendIcon,
   SparkleIcon,
 } from "./icons";
 import { ThemeToggle } from "./theme-toggle";
@@ -106,6 +107,37 @@ const itemVariants = {
 export default function LandingPage() {
   const reduce = useReducedMotion() ?? false;
 
+  // Gallery filmstrip: native horizontal scroll (scrollbar hidden) driven by
+  // prev/next controls + edge fades. Edge state disables controls and hides the
+  // matching fade at each end, so the strip always reads as intentional.
+  const stripRef = useRef<HTMLDivElement>(null);
+  const [atStart, setAtStart] = useState(true);
+  const [atEnd, setAtEnd] = useState(false);
+
+  const syncStripEdges = useCallback(() => {
+    const el = stripRef.current;
+    if (!el) return;
+    const { scrollLeft, scrollWidth, clientWidth } = el;
+    setAtStart(scrollLeft <= 2);
+    // A 2px slack absorbs sub-pixel rounding so the end state latches cleanly.
+    setAtEnd(scrollLeft + clientWidth >= scrollWidth - 2);
+  }, []);
+
+  useEffect(() => {
+    syncStripEdges();
+    window.addEventListener("resize", syncStripEdges);
+    return () => window.removeEventListener("resize", syncStripEdges);
+  }, [syncStripEdges]);
+
+  const scrollStrip = useCallback(
+    (dir: 1 | -1) => {
+      const el = stripRef.current;
+      if (!el) return;
+      el.scrollBy({ left: dir * el.clientWidth * 0.8, behavior: reduce ? "auto" : "smooth" });
+    },
+    [reduce],
+  );
+
   const reveal = reduce
     ? {}
     : {
@@ -125,6 +157,12 @@ export default function LandingPage() {
 
   return (
     <div className={styles.page}>
+      {/* Safety net: motion reveals render with opacity:0 for hydration. If
+          scripting is unavailable, restore full visibility so no section can be
+          left permanently hidden. */}
+      <noscript>
+        <style>{`[style*="opacity"]{opacity:1!important;transform:none!important}`}</style>
+      </noscript>
       {/* -------- Sticky header -------- */}
       <header className={styles.nav}>
         <a className={styles.brand} href="#top" aria-label="FloraLens home">
@@ -298,13 +336,53 @@ export default function LandingPage() {
               Every search ranks against curated photographs like these.
             </p>
           </div>
-          <div className={styles.strip}>
-            {STRIP_IDS.map((id) => (
-              <div className={styles.stripItem} key={id}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={specimenSrc(id)} alt="" loading="lazy" onError={hideOnError} />
-              </div>
-            ))}
+          <div
+            className={`${styles.stripWrap} ${atStart ? styles.atStart : ""} ${
+              atEnd ? styles.atEnd : ""
+            }`}
+          >
+            <button
+              type="button"
+              className={`${styles.stripNav} ${styles.stripPrev}`}
+              aria-label="Show previous specimens"
+              onClick={() => scrollStrip(-1)}
+              disabled={atStart}
+            >
+              <ChevronIcon width={20} height={20} className={styles.chevLeft} />
+            </button>
+            <div
+              className={styles.strip}
+              ref={stripRef}
+              onScroll={syncStripEdges}
+              tabIndex={0}
+              role="group"
+              aria-label="Gallery specimens, scroll horizontally with arrow keys"
+              onKeyDown={(e) => {
+                if (e.key === "ArrowRight") {
+                  e.preventDefault();
+                  scrollStrip(1);
+                } else if (e.key === "ArrowLeft") {
+                  e.preventDefault();
+                  scrollStrip(-1);
+                }
+              }}
+            >
+              {STRIP_IDS.map((id) => (
+                <div className={styles.stripItem} key={id}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={specimenSrc(id)} alt="" loading="lazy" onError={hideOnError} />
+                </div>
+              ))}
+            </div>
+            <button
+              type="button"
+              className={`${styles.stripNav} ${styles.stripNext}`}
+              aria-label="Show next specimens"
+              onClick={() => scrollStrip(1)}
+              disabled={atEnd}
+            >
+              <ChevronIcon width={20} height={20} className={styles.chevRight} />
+            </button>
           </div>
         </motion.section>
 
@@ -367,6 +445,17 @@ export default function LandingPage() {
             <a className={styles.footerLink} href="#how">How it works</a>
             <a className={styles.footerLink} href="#capabilities">Capabilities</a>
             <a className={styles.footerLink} href="#gallery">Gallery</a>
+          </div>
+          <div className={styles.footerLinks}>
+            <p className={styles.footerLinksTitle}>Project</p>
+            <a
+              className={styles.footerLink}
+              href="https://github.com/pdz1804/floralens"
+              target="_blank"
+              rel="noreferrer noopener"
+            >
+              <GithubIcon width={15} height={15} aria-hidden="true" /> GitHub
+            </a>
           </div>
         </div>
       </footer>

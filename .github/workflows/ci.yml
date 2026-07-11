@@ -7,6 +7,15 @@ on:
   push:
   pull_request:
 
+# Least-privilege default: CI only reads the repository.
+permissions:
+  contents: read
+
+# Cancel superseded runs on the same ref.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   python-tests:
     name: python-tests
@@ -60,6 +69,7 @@ jobs:
           # collect (ModuleNotFoundError: agent_core).
           pip install "agent-core[openai] @ git+https://github.com/pdz1804/agentforge.git@main#subdirectory=packages/agent-core" \
             aiosqlite==0.22.1 langgraph-checkpoint-sqlite==3.1.0 asyncpg==0.31.0
+          pip install pytest-cov
 
       # No pyproject.toml/ruff.toml/setup.cfg configures ruff in this repo
       # (verified: no ruff section anywhere, ruff not in requirements.txt).
@@ -90,7 +100,8 @@ jobs:
           #     fresh checkout for a reason unrelated to the code under test
           #     (missing dataset files, not a regression). It is deselected
           #     here rather than left to fail on a missing-fixture path.
-          pytest -v --deselect tests/test_smoke_e2e.py::test_embed_index_query_smoke
+          pytest -v --deselect tests/test_smoke_e2e.py::test_embed_index_query_smoke \
+            --cov=apps/api/app --cov-report=term-missing
 
       - name: Run ML metric-regression gate (Recall@5 / mAP@10 must not regress)
         run: |
@@ -102,6 +113,16 @@ jobs:
           # CPU-only. The test lives under ml/eval/ rather than the tests/
           # testpaths in pytest.ini, so its path is passed explicitly here.
           pytest -v ml/eval/test_metric_regression.py
+
+      - name: Dependency CVE scan (pip-audit, advisory)
+        # Advisory: audits the already-installed environment for known CVEs.
+        # continue-on-error so an upstream advisory in a heavy transitive pin
+        # (torch / transformers / mlflow stack) does not block unrelated
+        # changes; findings are always printed for triage.
+        continue-on-error: true
+        run: |
+          pip install pip-audit
+          pip-audit --desc || echo "::warning title=pip-audit::advisory findings above; review before shipping"
 
   web-build:
     name: web-build
@@ -123,6 +144,13 @@ jobs:
 
       - name: Build (Next.js production build must succeed)
         run: npm run build
+
+      - name: npm audit (advisory)
+        # Advisory web-dependency vulnerability scan against the committed
+        # lockfile; continue-on-error so upstream advisories do not block a
+        # build, but they are surfaced in the log for triage.
+        continue-on-error: true
+        run: npm audit --audit-level=high || echo "::warning title=npm-audit::advisory findings above; review before shipping"
 
   web-e2e:
     name: web-e2e

@@ -27,7 +27,17 @@
   backdrop-filter: saturate(1.4) blur(10px);
   border-bottom: 1px solid var(--line);
 }
-.brand { display: flex; align-items: center; gap: 11px; min-width: 0; }
+/* Brand links (nav + footer) return to the top of the page. Neutral by
+   default, clearly interactive on hover/focus, layout never shifts. */
+.brand { display: flex; align-items: center; gap: 11px; min-width: 0; text-decoration: none; cursor: pointer; }
+.brand .wordmark { color: var(--ink); transition: color 0.15s var(--ease); }
+.brand .brandMark { transition: box-shadow 0.15s var(--ease), transform 0.15s var(--ease); }
+.brand:hover .wordmark { color: var(--primary); }
+.brand:hover .brandMark { box-shadow: var(--shadow); transform: translateY(-1px); }
+@media (prefers-reduced-motion: reduce) {
+  .brand .brandMark { transition: none; }
+  .brand:hover .brandMark { transform: none; }
+}
 .brandMark {
   display: grid;
   place-items: center;
@@ -163,19 +173,21 @@
    gradient underneath every frame, so a failed image degrades gracefully. */
 .heroCluster {
   display: grid;
-  grid-template-columns: 1.15fr 1fr;
-  grid-template-rows: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 1.25fr 0.9fr;
+  grid-template-rows: 1fr 1fr 0.82fr;
   gap: var(--space-4);
-  aspect-ratio: 5 / 5.2;
-  min-height: 340px;
+  aspect-ratio: 1 / 1.04;
+  min-height: 360px;
 }
-.heroCluster .frame:nth-child(1) { grid-row: span 2; }
+/* Tall feature on the left, two stacked on the right, one wide band beneath -
+   every one of the four frames is placed, no orphaned or empty cell. */
+.heroCluster .frame:nth-child(1) { grid-row: 1 / 3; }
+.heroCluster .frame:nth-child(4) { grid-column: 1 / 3; }
 @media (max-width: 900px) {
-  .heroCluster { aspect-ratio: 3 / 2; min-height: 260px; }
+  .heroCluster { aspect-ratio: 3 / 2.4; min-height: 300px; }
 }
 @media (max-width: 420px) {
-  .heroCluster { grid-template-columns: 1fr 1fr; aspect-ratio: 1 / 1; }
-  .heroCluster .frame:nth-child(1) { grid-row: span 2; }
+  .heroCluster { aspect-ratio: 1 / 1.1; min-height: 320px; }
 }
 
 .frame {
@@ -306,15 +318,18 @@
   transition: transform 0.18s var(--ease), box-shadow 0.18s var(--ease), border-color 0.18s var(--ease);
 }
 .cell > * { position: relative; z-index: 1; }
-/* Lead cell spans two columns and two rows - the grid reads as feature + set. */
+/* Balanced bento: 2x2 lead + 1x2 tall photo fill the top two rows, three cells
+   form the middle row, and a full-width banner closes it - a clean 3x4 with no
+   empty cells. */
 .cellLead { grid-column: span 2; grid-row: span 2; }
-.cellWide { grid-column: span 2; }
+.cellWide { grid-column: 1 / -1; }
 @media (max-width: 880px) {
-  .cellLead { grid-column: span 2; grid-row: span 1; }
-  .cellWide { grid-column: span 2; }
+  .cellLead { grid-column: 1 / -1; grid-row: auto; }
+  .cellPhoto { grid-row: auto; }
+  .cellWide { grid-column: 1 / -1; }
 }
 @media (max-width: 560px) {
-  .cellLead, .cellWide { grid-column: span 1; }
+  .cellLead, .cellWide { grid-column: 1 / -1; }
 }
 
 .cellIco {
@@ -358,6 +373,7 @@
 .cellPhoto {
   padding: 0;
   min-height: 200px;
+  grid-row: span 2;
   border: 1px solid var(--line);
   background:
     radial-gradient(120% 120% at 20% 0%, var(--primary-soft), transparent 60%),
@@ -417,14 +433,81 @@
   padding-top: clamp(40px, 6vh, 72px);
   padding-bottom: clamp(56px, 9vh, 108px);
 }
+/* Wrapper bleeds to the section edges and hosts the controls + edge fades,
+   so the filmstrip fills the band while its content still aligns with the head. */
+.stripWrap {
+  position: relative;
+  margin: 0 calc(-1 * var(--edge));
+}
 .strip {
   display: flex;
   gap: var(--space-4);
   overflow-x: auto;
+  overflow-y: hidden;
   padding: 4px var(--edge) var(--space-4);
-  margin: 0 calc(-1 * var(--edge));
   scroll-snap-type: x proximity;
-  scrollbar-width: thin;
+  /* Hidden scrollbar, cross-browser - scrolling stays fully functional. */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  scroll-behavior: smooth;
+}
+.strip::-webkit-scrollbar { display: none; }
+.strip:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
+  border-radius: var(--r-lg);
+}
+
+/* Left/right gradient masks signal "more to scroll"; each fades out at its end. */
+.stripWrap::before,
+.stripWrap::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: var(--space-4);
+  width: clamp(28px, 6vw, 72px);
+  z-index: 2;
+  pointer-events: none;
+  opacity: 1;
+  transition: opacity 0.2s var(--ease);
+}
+.stripWrap::before { left: 0; background: linear-gradient(90deg, var(--bg), transparent); }
+.stripWrap::after { right: 0; background: linear-gradient(270deg, var(--bg), transparent); }
+.stripWrap.atStart::before { opacity: 0; }
+.stripWrap.atEnd::after { opacity: 0; }
+
+/* Circular prev/next controls, centred over the film. Hidden on touch widths
+   where a swipe is the natural gesture. */
+.stripNav {
+  position: absolute;
+  top: calc(50% - var(--space-3));
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: 50%;
+  color: var(--ink);
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  border: 1px solid var(--line-strong);
+  box-shadow: var(--shadow);
+  backdrop-filter: saturate(1.3) blur(6px);
+  cursor: pointer;
+  transform: translateY(-50%);
+  transition: background 0.15s var(--ease), border-color 0.15s var(--ease),
+    color 0.15s var(--ease), opacity 0.15s var(--ease);
+}
+.stripPrev { left: calc(var(--edge) - 6px); }
+.stripNext { right: calc(var(--edge) - 6px); }
+.stripNav:hover { color: var(--primary); border-color: var(--accent); background: var(--panel); }
+/* At an end the control greys out but stays visible, so the pair always reads
+   as a carousel and the strip is unmistakably scrollable. */
+.stripNav:disabled { opacity: 0.4; color: var(--muted); cursor: default; pointer-events: none; }
+.chevLeft { transform: rotate(90deg); }
+.chevRight { transform: rotate(-90deg); }
+@media (max-width: 767px) {
+  .stripNav { display: none; }
 }
 .stripItem {
   position: relative;
@@ -533,11 +616,15 @@
   margin: 0 auto;
   padding: clamp(36px, 6vh, 64px) var(--edge);
   display: grid;
-  grid-template-columns: 1.4fr 1fr;
+  grid-template-columns: 1.6fr 1fr 1fr;
   gap: clamp(28px, 5vw, 56px);
   align-items: start;
 }
-@media (max-width: 640px) { .footerInner { grid-template-columns: 1fr; gap: 28px; } }
+@media (max-width: 720px) {
+  .footerInner { grid-template-columns: 1fr 1fr; gap: 32px; }
+  .footerBrand { grid-column: 1 / -1; }
+}
+@media (max-width: 460px) { .footerInner { grid-template-columns: 1fr; gap: 28px; } }
 .footerBrand { display: flex; flex-direction: column; gap: var(--space-3); max-width: 40ch; }
 .footerTagline { font-size: var(--text-sm); color: var(--muted); line-height: 1.55; margin: 0; }
 .footerNote { font-size: var(--text-xs); color: var(--faint); margin: 0; }
@@ -551,6 +638,9 @@
   margin: 0 0 4px;
 }
 .footerLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
   font-size: var(--text-sm);
   color: var(--muted);
   text-decoration: none;
@@ -562,4 +652,6 @@
 /* Respect reduced motion for the CSS-driven hover transforms above. */
 @media (prefers-reduced-motion: reduce) {
   .cell, .stripItem img { transition: none; }
+  .strip { scroll-behavior: auto; }
+  .stripWrap::before, .stripWrap::after, .stripNav { transition: none; }
 }

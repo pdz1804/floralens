@@ -265,6 +265,17 @@ a { color: inherit; }
 }
 
 .brand { display: flex; align-items: center; gap: 11px; min-width: 0; }
+/* Brand doubles as the back-to-landing link: keep it visually neutral but
+   clearly clickable on hover/focus without shifting the header layout. */
+a.brand { text-decoration: none; color: inherit; cursor: pointer; border-radius: 12px; }
+a.brand .wordmark { transition: color 0.15s var(--ease); }
+a.brand .mark { transition: box-shadow 0.15s var(--ease), transform 0.15s var(--ease); }
+a.brand:hover .wordmark { color: var(--primary); }
+a.brand:hover .mark { box-shadow: var(--shadow); transform: translateY(-1px); }
+@media (prefers-reduced-motion: reduce) {
+  a.brand .mark { transition: none; }
+  a.brand:hover .mark { transform: none; }
+}
 .brand .mark {
   display: grid;
   place-items: center;

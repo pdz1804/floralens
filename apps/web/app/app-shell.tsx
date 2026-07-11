@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { motion, useReducedMotion } from "motion/react";
 import {
   bandFor,
@@ -259,7 +260,12 @@ export default function Page() {
   return (
     <>
       <header className="topbar">
-        <div className="brand">
+        <Link
+          className="brand"
+          href="/"
+          data-testid="home-link"
+          aria-label="Back to FloraLens home"
+        >
           <span className="mark" aria-hidden="true">
             <BloomIcon width={22} height={22} />
           </span>
@@ -267,7 +273,7 @@ export default function Page() {
             <h1 className="wordmark">FloraLens</h1>
             <div className="tagline">Visual flower discovery &amp; similarity search</div>
           </div>
-        </div>
+        </Link>
         <nav className="tabs" role="tablist" aria-label="Sections">
           {TABS.map((t, i) => (
             <button
