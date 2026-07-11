@@ -4,6 +4,9 @@
 
 Paste or upload a photo of any flower, instantly get visually similar species ranked by calibrated confidence scores, explore them in an interactive 3D galaxy, and chat with an AI naturalist assistant that remembers your personal plant collection.
 
+![FloraLens Landing Page](docs/assets/landing.png)
+*Marketing landing page with hero and carousel gallery.*
+
 ![Search Results — visual similarity ranking with confidence bands](docs/assets/search-results.png)
 *Visual search: rose photo → ranked species matches with calibrated confidence scores and high/medium/low bands.*
 
@@ -18,10 +21,7 @@ Upload or paste a flower image to find visually similar species. Results are ran
 *Species Catalogue: Browse all 102 flower classes, each with gallery specimen count and a representative thumbnail.*
 
 ### Species Catalogue
-Browse the full 102-flower species taxonomy at a glance. Each species shows its gallery count, total dataset count, and a representative specimen thumbnail. Color-coded for visual consistency with the 3D galaxy.
-
-![Specimen Dialog — detailed view with gallery images and save option](docs/assets/species-dialog.png)
-*Species Details: View all gallery specimens for a species and save your favorites to "My Garden."*
+Browse the full 102-flower species taxonomy at a glance. Each species shows its gallery count, total dataset count, and a representative specimen thumbnail. Click a species to view all gallery specimens and save your favorites to "My Garden." Color-coded for visual consistency with the 3D galaxy.
 
 ### 3D Embedding Galaxy
 Explore the learned embedding space as an interactive 3D point cloud. Each point represents a flower specimen; hover for details, click to inspect. The galaxy is color-coded by species family and navigable with your mouse — a visual proof that the model clusters similar flowers nearby.
@@ -84,7 +84,7 @@ npm install
 npm run dev
 ```
 
-Open your browser to `http://localhost:3100` and start searching for flowers.
+Open your browser to `http://localhost:3100/app` to access the working application (7 tabs). The landing page is served at `http://localhost:3100/`.
 
 ### 3. (Optional) Run the ML Pipeline
 
@@ -128,6 +128,10 @@ See [docs/architecture.md](docs/architecture.md) for the full system diagram, da
 - **[API Reference](docs/api.md)** — Complete endpoint reference (request/response schemas, status codes, examples).
 - **[Machine Learning](docs/ml.md)** — Dataset, preprocessing, DINOv2 backbone, ArcFace training, calibration, metrics, and model evaluation protocol.
 - **[Unified Agent Core Reuse](docs/cross-product-reuse.md)** — How FloraLens proves the shared agent core is domain-independent.
+
+## Roadmap
+
+See [docs/roadmap.md](docs/roadmap.md) for the horizon-based roadmap (Now / Next / Later). Feature wiring gaps and doc-truth reconciliation tracked there.
 
 ---
 
