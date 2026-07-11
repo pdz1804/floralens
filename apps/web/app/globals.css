@@ -204,7 +204,10 @@ body {
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+  /* Dynamic viewport unit so the full-height backdrop is correct under mobile
+     browser chrome; 100vh kept only as a fallback for engines without dvh. */
   min-height: 100vh;
+  min-height: 100dvh;
   position: relative;
 }
 
@@ -807,6 +810,9 @@ input[type="text"]:focus {
      ~390px viewport). */
   .tabs { order: 3; width: 100%; justify-content: center; flex-wrap: wrap; }
   .topbar-actions { margin-left: auto; }
+  /* Comfortable ≥40px tap targets for the wrapped nav on touch screens. */
+  .tab { min-height: 40px; display: inline-flex; align-items: center; }
+  .theme-toggle { min-height: 40px; }
 }
 
 /* Shared eyebrow (pipeline / about heroes, outside the search .hero scope). */

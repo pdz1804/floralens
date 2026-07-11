@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { motion, useReducedMotion } from "motion/react";
 import {
   bandFor,
   getHealth,
@@ -55,7 +56,11 @@ const CHIP_LABEL: Record<"all" | Band, string> = {
   low: "Low",
 };
 
+// Shared editorial easing (expo-out) for motivated entrance motion.
+const EASE = [0.16, 1, 0.3, 1] as const;
+
 export default function Page() {
+  const reduce = useReducedMotion() ?? false;
   const [health, setHealth] = useState<Health | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [file, setFile] = useState<Blob | null>(null);
@@ -209,11 +214,20 @@ export default function Page() {
 
   // Single source of truth for a result card so grouped sections and the
   // filtered view stay identical. Display-only — preserves every data-testid.
-  const renderCard = (r: SearchResult) => {
+  const renderCard = (r: SearchResult, i: number) => {
     const b = bandFor(r);
     const pct = Math.max(0, Math.round((r.confidence ?? r.score) * 100));
     return (
-      <article className="result" data-testid="result-card" key={r.specimen_id}>
+      <motion.article
+        className="result"
+        data-testid="result-card"
+        key={r.specimen_id}
+        initial={reduce ? false : { opacity: 0, y: 12 }}
+        animate={reduce ? undefined : { opacity: 1, y: 0 }}
+        transition={reduce ? undefined : { duration: 0.35, ease: EASE, delay: Math.min(i * 0.05, 0.4) }}
+        whileHover={reduce ? undefined : { y: -4 }}
+        whileTap={reduce ? undefined : { scale: 0.98 }}
+      >
         <div className="thumb-wrap">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
@@ -238,7 +252,7 @@ export default function Page() {
             <span className="pct" data-testid="result-score">{pct}%</span>
           </div>
         </div>
-      </article>
+      </motion.article>
     );
   };
 
@@ -295,7 +309,16 @@ export default function Page() {
           aria-labelledby="tab-search"
           hidden={tab !== "search"}
         >
-        <section className="hero">
+        <motion.section
+          className="hero"
+          {...(reduce
+            ? {}
+            : {
+                initial: { opacity: 0, y: 12 },
+                animate: { opacity: 1, y: 0 },
+                transition: { duration: 0.45, ease: EASE },
+              })}
+        >
           <span className="eyebrow">
             <BloomIcon width={14} height={14} /> Botanical intelligence
           </span>
@@ -304,7 +327,7 @@ export default function Page() {
             Upload or link a photo and FloraLens embeds it, then surfaces visually similar
             specimens from the gallery — each scored with a calibrated confidence band.
           </p>
-        </section>
+        </motion.section>
 
         <div className="layout">
           {/* LEFT: input */}
@@ -532,7 +555,7 @@ export default function Page() {
                           <span className={`band-section-count ${b}`}>{counts[b]}</span>
                           <span className="band-section-note">{BAND_META[b].note}</span>
                         </header>
-                        <div className="grid">{groups[b].map((r) => renderCard(r))}</div>
+                        <div className="grid">{groups[b].map((r, i) => renderCard(r, i))}</div>
                       </section>
                     ) : null,
                   )}

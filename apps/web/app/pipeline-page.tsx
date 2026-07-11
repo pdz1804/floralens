@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { motion, useReducedMotion } from "motion/react";
 import {
   getPipeline,
   MAX_UPLOAD_BYTES,
@@ -807,6 +808,7 @@ function FlowDiagram({ data }: { data: PipelineData }) {
 
 /* ---- Page ------------------------------------------------------------------ */
 export function PipelinePage() {
+  const reduce = useReducedMotion() ?? false;
   const [data, setData] = useState<PipelineData | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [error, setError] = useState<string | null>(null);
@@ -859,7 +861,17 @@ export function PipelinePage() {
   const promoted = decision === "PROMOTE" || decision === "PROMOTED";
 
   return (
-    <div className="pipeline" data-testid="pipeline-page">
+    <motion.div
+      className="pipeline"
+      data-testid="pipeline-page"
+      {...(reduce
+        ? {}
+        : {
+            initial: { opacity: 0, y: 8 },
+            animate: { opacity: 1, y: 0 },
+            transition: { duration: 0.35, ease: [0.16, 1, 0.3, 1] },
+          })}
+    >
       <section className="pipeline-hero">
         <span className="eyebrow">
           <GridIcon width={14} height={14} /> How it works
@@ -1062,6 +1074,6 @@ export function PipelinePage() {
       </div>
 
       {data.device_benchmark && <DeviceBenchmarkSection db={data.device_benchmark} />}
-    </div>
+    </motion.div>
   );
 }

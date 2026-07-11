@@ -89,6 +89,22 @@
   box-shadow: var(--shadow);
   border-color: var(--line-strong);
 }
+/* Keep flow content above the cursor-follow spotlight overlay. */
+.feature > * { position: relative; z-index: 1; }
+/* Cursor-follow spotlight (About feature cards only). Position/opacity are
+   driven by motion values in JS; this rule sets the resting/hover state and
+   clips the glow to the card's rounded corners. Never rendered under
+   prefers-reduced-motion (the element is omitted in JS). */
+.spotlight {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s var(--ease);
+}
+.feature:hover .spotlight { opacity: 1; }
 /* Editorial hierarchy: the lead capability spans two tracks and carries a
    subtle brand-tinted border so the grid reads as a feature + supporting set
    rather than N identical cards. Degrades to full width on narrow layouts. */

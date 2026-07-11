@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { motion, useReducedMotion } from "motion/react";
 import {
   addToGarden,
   getCategories,
@@ -27,7 +28,10 @@ type GalaxyStatus = "idle" | "loading" | "ready" | "error";
 
 const numberFmt = new Intl.NumberFormat("en-US");
 
+const EASE = [0.16, 1, 0.3, 1] as const;
+
 export function CategoriesPage() {
+  const reduce = useReducedMotion() ?? false;
   const [categories, setCategories] = useState<Category[]>([]);
   const [status, setStatus] = useState<Status>("loading");
   const [error, setError] = useState<string | null>(null);
@@ -144,7 +148,17 @@ export function CategoriesPage() {
   const total = categories.length;
 
   return (
-    <div className={styles.page} data-testid="categories-page">
+    <motion.div
+      className={styles.page}
+      data-testid="categories-page"
+      {...(reduce
+        ? {}
+        : {
+            initial: { opacity: 0, y: 8 },
+            animate: { opacity: 1, y: 0 },
+            transition: { duration: 0.35, ease: EASE },
+          })}
+    >
       <section className={styles.hero}>
         <span className="eyebrow">
           <TagIcon width={14} height={14} /> Species catalogue
@@ -265,7 +279,7 @@ export function CategoriesPage() {
                 const gallery = numberFmt.format(cat.gallery_count);
                 const totalCount = numberFmt.format(cat.total_count);
                 return (
-                  <button
+                  <motion.button
                     type="button"
                     key={cat.label}
                     className={styles.card}
@@ -273,6 +287,9 @@ export function CategoriesPage() {
                     onClick={(e) => openSpecies(cat, e)}
                     aria-haspopup="dialog"
                     aria-label={`${cat.label_name} — ${cat.total_count} specimens. Open gallery.`}
+                    whileHover={reduce ? undefined : { y: -4 }}
+                    whileTap={reduce ? undefined : { scale: 0.98 }}
+                    transition={{ type: "spring", stiffness: 320, damping: 26 }}
                   >
                     <div className={styles.thumbWrap}>
                       {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -313,7 +330,7 @@ export function CategoriesPage() {
                         </span>
                       </div>
                     </div>
-                  </button>
+                  </motion.button>
                 );
               })}
             </div>
@@ -464,6 +481,6 @@ export function CategoriesPage() {
           </div>
         </div>
       )}
-    </div>
+    </motion.div>
   );
 }

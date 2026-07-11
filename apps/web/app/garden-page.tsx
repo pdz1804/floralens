@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { motion, useReducedMotion } from "motion/react";
 import {
   addToGarden,
   clearMemory,
@@ -35,7 +36,10 @@ function CloseGlyph() {
   );
 }
 
+const EASE = [0.16, 1, 0.3, 1] as const;
+
 export function GardenPage() {
+  const reduce = useReducedMotion() ?? false;
   const [items, setItems] = useState<GardenItem[]>([]);
   const [status, setStatus] = useState<Status>("loading");
   const [error, setError] = useState<string | null>(null);
@@ -148,7 +152,17 @@ export function GardenPage() {
   }
 
   return (
-    <div className="garden" data-testid="garden-page">
+    <motion.div
+      className="garden"
+      data-testid="garden-page"
+      {...(reduce
+        ? {}
+        : {
+            initial: { opacity: 0, y: 8 },
+            animate: { opacity: 1, y: 0 },
+            transition: { duration: 0.35, ease: EASE },
+          })}
+    >
       <section className="garden-hero">
         <span className="eyebrow">
           <LeafIcon width={14} height={14} /> Your collection
@@ -299,11 +313,18 @@ export function GardenPage() {
             )}
             {items.length > 0 && (
               <div className={styles.grid}>
-                {items.map((it) => (
-                  <article
+                {items.map((it, i) => (
+                  <motion.article
                     className={`result garden-item ${styles.item}`}
                     data-testid="garden-item"
                     key={it.specimen_id}
+                    initial={reduce ? false : { opacity: 0, y: 10 }}
+                    animate={reduce ? undefined : { opacity: 1, y: 0 }}
+                    transition={
+                      reduce ? undefined : { duration: 0.3, ease: EASE, delay: Math.min(i * 0.04, 0.3) }
+                    }
+                    whileHover={reduce ? undefined : { y: -4 }}
+                    whileTap={reduce ? undefined : { scale: 0.98 }}
                   >
                     <div className="thumb-wrap">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -333,7 +354,7 @@ export function GardenPage() {
                         {it.specimen_id}
                       </span>
                     </div>
-                  </article>
+                  </motion.article>
                 ))}
               </div>
             )}
@@ -404,6 +425,6 @@ export function GardenPage() {
           )}
         </div>
       </section>
-    </div>
+    </motion.div>
   );
 }

@@ -81,6 +81,17 @@
   border-color: color-mix(in srgb, var(--primary) 40%, var(--line));
   background: var(--primary-soft);
 }
+/* Calm hover feedback for the dense metric tiles — a small lift + tinted
+   border, no scale, so the data surfaces stay quiet. */
+.tile {
+  transition: transform 0.16s var(--ease), box-shadow 0.16s var(--ease),
+    border-color 0.16s var(--ease);
+}
+.tile:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow);
+  border-color: var(--line-strong);
+}
 .tileK {
   font-size: var(--text-2xs);
   text-transform: uppercase;
@@ -144,6 +155,18 @@
   box-shadow: var(--shadow-sm);
   display: flex;
   flex-direction: column;
+  transition: transform 0.16s var(--ease), box-shadow 0.16s var(--ease),
+    border-color 0.16s var(--ease);
+}
+.benchCard:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow);
+  border-color: var(--line-strong);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tile:hover,
+  .benchCard:hover { transform: none; }
 }
 .benchHead {
   display: flex;

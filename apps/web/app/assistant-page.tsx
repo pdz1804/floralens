@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { motion, useReducedMotion } from "motion/react";
 import { extractCitations, streamAssistant, type AssistantEvent } from "@/lib/api";
 import { AlertIcon, BloomIcon, LinkIcon, SendIcon, SparkleIcon } from "./icons";
 import styles from "./assistant.module.css";
@@ -35,7 +36,10 @@ const SUGGESTIONS = [
   "What does a healthy orchid leaf look like?",
 ];
 
+const EASE = [0.16, 1, 0.3, 1] as const;
+
 export function AssistantPage() {
+  const reduce = useReducedMotion() ?? false;
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
@@ -131,7 +135,17 @@ export function AssistantPage() {
   }
 
   return (
-    <div className="assistant" data-testid="assistant-page">
+    <motion.div
+      className="assistant"
+      data-testid="assistant-page"
+      {...(reduce
+        ? {}
+        : {
+            initial: { opacity: 0, y: 8 },
+            animate: { opacity: 1, y: 0 },
+            transition: { duration: 0.35, ease: EASE },
+          })}
+    >
       <section className="assistant-hero">
         <span className="eyebrow">
           <BloomIcon width={14} height={14} /> Naturalist assistant
@@ -178,7 +192,13 @@ export function AssistantPage() {
             const streaming = isBot && m.status === "streaming";
             const citations = isBot && m.status === "done" ? extractCitations(m.text) : [];
             return (
-              <div className={`${styles.row} ${isBot ? styles.rowBot : styles.rowUser}`} key={m.id}>
+              <motion.div
+                className={`${styles.row} ${isBot ? styles.rowBot : styles.rowUser}`}
+                key={m.id}
+                initial={reduce ? false : { opacity: 0, y: 6 }}
+                animate={reduce ? undefined : { opacity: 1, y: 0 }}
+                transition={reduce ? undefined : { duration: 0.3, ease: EASE }}
+              >
                 <span
                   className={`${styles.avatar} ${isBot ? styles.avatarBot : styles.avatarUser}`}
                   aria-hidden="true"
@@ -242,7 +262,7 @@ export function AssistantPage() {
                     </>
                   )}
                 </div>
-              </div>
+              </motion.div>
             );
           })}
         </div>
@@ -275,6 +295,6 @@ export function AssistantPage() {
           </p>
         )}
       </div>
-    </div>
+    </motion.div>
   );
 }

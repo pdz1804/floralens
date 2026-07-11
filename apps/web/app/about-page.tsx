@@ -1,6 +1,13 @@
 "use client";
 
 import {
+  motion,
+  useMotionTemplate,
+  useMotionValue,
+  useReducedMotion,
+  type Variants,
+} from "motion/react";
+import {
   BloomIcon,
   ChartIcon,
   GaugeIcon,
@@ -12,6 +19,10 @@ import {
   WandIcon,
 } from "./icons";
 import styles from "./about.module.css";
+
+// Shared editorial easing (expo-out) — used across every reveal so the whole
+// page shares one motion signature.
+const EASE = [0.16, 1, 0.3, 1] as const;
 
 const STATS = [
   { value: "1024-d", label: "Embedding dimensions per specimen" },
@@ -60,10 +71,94 @@ const STEPS = [
   { n: 4, title: "Filter by confidence", body: "Narrow results to High, Medium, or Low bands to focus on the strongest matches." },
 ] as const;
 
+// Stagger container + item variants for grids/lists that reveal on scroll.
+const containerVariants: Variants = {
+  hidden: {},
+  show: { transition: { staggerChildren: 0.06 } },
+};
+const itemVariants: Variants = {
+  hidden: { opacity: 0, y: 24 },
+  show: { opacity: 1, y: 0, transition: { duration: 0.5, ease: EASE } },
+};
+
+type FeatureDef = (typeof FEATURES)[number];
+
+/** Feature card with an optional cursor-follow spotlight driven by motion
+ * values (no state → no re-render on mouse move). Degrades to a plain,
+ * static card when the user prefers reduced motion. */
+function FeatureCard({ f, index, reduce }: { f: FeatureDef; index: number; reduce: boolean }) {
+  const mx = useMotionValue(0);
+  const my = useMotionValue(0);
+  const spotlight = useMotionTemplate`radial-gradient(220px circle at ${mx}px ${my}px, color-mix(in srgb, var(--primary) 14%, transparent), transparent 72%)`;
+
+  return (
+    <motion.article
+      className={styles.feature}
+      key={f.title}
+      variants={reduce ? undefined : itemVariants}
+      whileHover={reduce ? undefined : { y: -4 }}
+      whileTap={reduce ? undefined : { scale: 0.98 }}
+      transition={{ type: "spring", stiffness: 320, damping: 26 }}
+      onMouseMove={
+        reduce
+          ? undefined
+          : (e) => {
+              const r = e.currentTarget.getBoundingClientRect();
+              mx.set(e.clientX - r.left);
+              my.set(e.clientY - r.top);
+            }
+      }
+    >
+      {!reduce && (
+        <motion.span className={styles.spotlight} style={{ background: spotlight }} aria-hidden="true" />
+      )}
+      <div className={styles.featureTop}>
+        <span className={styles.featureIco} aria-hidden="true">
+          <f.icon width={22} height={22} />
+        </span>
+        <span className={styles.featureNum} aria-hidden="true">
+          {String(index + 1).padStart(2, "0")}
+        </span>
+      </div>
+      <h3>{f.title}</h3>
+      <p>{f.body}</p>
+    </motion.article>
+  );
+}
+
 export function AboutPage() {
+  const reduce = useReducedMotion() ?? false;
+
+  // Reveal-on-scroll props, gated on the reduced-motion preference.
+  const reveal = reduce
+    ? {}
+    : {
+        initial: { opacity: 0, y: 24 },
+        whileInView: { opacity: 1, y: 0 },
+        viewport: { once: true, amount: 0.25 },
+        transition: { duration: 0.6, ease: EASE },
+      };
+  const gridReveal = reduce
+    ? {}
+    : {
+        variants: containerVariants,
+        initial: "hidden" as const,
+        whileInView: "show" as const,
+        viewport: { once: true, amount: 0.2 },
+      };
+
   return (
     <div className={styles.page} data-testid="about-page">
-      <section className={styles.hero}>
+      <motion.section
+        className={styles.hero}
+        {...(reduce
+          ? {}
+          : {
+              initial: { opacity: 0, y: 16 },
+              animate: { opacity: 1, y: 0 },
+              transition: { duration: 0.6, ease: EASE },
+            })}
+      >
         <span className="eyebrow">
           <BloomIcon width={14} height={14} /> About FloraLens
         </span>
@@ -74,18 +169,22 @@ export function AboutPage() {
           you can actually trust — transparent end to end, from preprocessing to the model, the
           index, and the evaluation behind every number.
         </p>
-      </section>
+      </motion.section>
 
-      <dl className={styles.stats} aria-label="FloraLens at a glance">
+      <motion.dl className={styles.stats} aria-label="FloraLens at a glance" {...gridReveal}>
         {STATS.map((s) => (
-          <div className={styles.stat} key={s.label}>
+          <motion.div
+            className={styles.stat}
+            key={s.label}
+            variants={reduce ? undefined : itemVariants}
+          >
             <dt className={styles.statValue}>{s.value}</dt>
             <dd className={styles.statLabel}>{s.label}</dd>
-          </div>
+          </motion.div>
         ))}
-      </dl>
+      </motion.dl>
 
-      <section className={styles.section} aria-label="What FloraLens does">
+      <motion.section className={styles.section} aria-label="What FloraLens does" {...reveal}>
         <header className={styles.sectionHead}>
           <span className={styles.kicker}>
             <SparkleIcon width={13} height={13} /> Capabilities
@@ -95,45 +194,38 @@ export function AboutPage() {
             Six design choices keep results honest, reproducible, and easy to reason about.
           </p>
         </header>
-        <div className={styles.features}>
+        <motion.div className={styles.features} {...gridReveal}>
           {FEATURES.map((f, i) => (
-            <article className={styles.feature} key={f.title}>
-              <div className={styles.featureTop}>
-                <span className={styles.featureIco} aria-hidden="true">
-                  <f.icon width={22} height={22} />
-                </span>
-                <span className={styles.featureNum} aria-hidden="true">
-                  {String(i + 1).padStart(2, "0")}
-                </span>
-              </div>
-              <h3>{f.title}</h3>
-              <p>{f.body}</p>
-            </article>
+            <FeatureCard f={f} index={i} reduce={reduce} key={f.title} />
           ))}
-        </div>
-      </section>
+        </motion.div>
+      </motion.section>
 
-      <section className={styles.section} aria-label="How to use FloraLens">
+      <motion.section className={styles.section} aria-label="How to use FloraLens" {...reveal}>
         <header className={styles.sectionHead}>
           <span className={styles.kicker}>
             <LeafIcon width={13} height={13} /> Getting started
           </span>
           <h3 className={styles.sectionTitle}>Four steps from photo to match.</h3>
         </header>
-        <ol className={styles.steps}>
+        <motion.ol className={styles.steps} {...gridReveal}>
           {STEPS.map((s) => (
-            <li className={styles.step} key={s.n}>
+            <motion.li
+              className={styles.step}
+              key={s.n}
+              variants={reduce ? undefined : itemVariants}
+            >
               <span className={styles.stepNum} aria-hidden="true">
                 {s.n}
               </span>
               <h4>{s.title}</h4>
               <p>{s.body}</p>
-            </li>
+            </motion.li>
           ))}
-        </ol>
-      </section>
+        </motion.ol>
+      </motion.section>
 
-      <section className={styles.closing} aria-label="Why it matters">
+      <motion.section className={styles.closing} aria-label="Why it matters" {...reveal}>
         <span className={styles.closingIco} aria-hidden="true">
           <GaugeIcon width={24} height={24} />
         </span>
@@ -145,7 +237,7 @@ export function AboutPage() {
             index and the calibration that produced it.
           </p>
         </div>
-      </section>
+      </motion.section>
     </div>
   );
 }
